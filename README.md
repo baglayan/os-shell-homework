@@ -6,7 +6,7 @@ This assignment involves implementing a command-line shell that can be run in ba
 ## Features
 - Execute multiple commands separated by `;` or `|` simultaneously
 - Support for `cd` command to change the working directory
-- Support for "history" command to display previous commands
+- Support for `history` command to display previous commands
 - Exit the shell using the `quit` command
 
 ## Implementation Details

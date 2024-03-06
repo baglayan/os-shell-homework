@@ -1,6 +1,6 @@
 # BLG312E Computer Operating Systems Spring 2024 Homework 1
-##### Istanbul Technical University
-##### March 5, 2024
+###### Istanbul Technical University
+###### March 5, 2024
 
 ## Regulations
 
