@@ -1,6 +1,6 @@
 # BLG312E Computer Operating Systems Spring 2024 Homework 1
-#### Istanbul Technical University
-#### March 5, 2024
+##### Istanbul Technical University
+##### March 5, 2024
 
 ## Regulations
 
@@ -20,7 +20,7 @@ In this assignment, you will implement a command-line shell. Your shell can be r
 
 ## Implementation Details
 
- - Each line may contain multiple commands separated by the ; or |
+ - Each line may contain multiple commands separated by the `;` or `|`
    characters.
 
    - i.e, a line of input might look like this: `command1 ; command2 | command3`
@@ -41,7 +41,7 @@ In this assignment, you will implement a command-line shell. Your shell can be r
 
    - If the `quit` command is on the same line with other commands, ensure that the other commands execute and finish before the shell exits.
 
-- Your program should support the `cd` command and the "history" command:
+- Your program should support the `cd` command and the `history` command:
 
 - The `cd` command affects all commands after it.
 
@@ -51,22 +51,24 @@ In this assignment, you will implement a command-line shell. Your shell can be r
 
    - Assume that the `cd` command appears alone in the command line.
 
-- The "history" command only shows previous commands you have run in the program.
+- The `history` command only shows previous commands you have run in the program.
 
 - You can assume that length of one line in batch file is maximum 250 character.
 
 For example, the commands `ls -a ; grep foo file2` should all be running at the same time; as a result, you may see that their output is intermixed. Each group of commands separated by a pipe `|` should be run similarly to standard Linux; however, the result of all commands before the `|` must be
 
-transferred as a parameter to all commands after the |. For instance, in the command `cat f1.txt ; cat f2.txt | grep hw ; grep odev`, the `cat` operation must be applied to both files simultaneously, and the "grep" operation must be applied to their contexts for both `hw` and `odev`.
+transferred as a parameter to all commands after the `|`. For instance, in the command `cat f1.txt ; cat f2.txt | grep hw ; grep odev`, the `cat` operation must be applied to both files simultaneously, and the "grep" operation must be applied to their contexts for both `hw` and `odev`.
 
 Example Command line output when executing script.sh batch file in Linux (f1.txt, f2.txt and script.sh is given in Ninova):
 
-    $ bash script.sh
-    
-    hw f1
-    odev f2
-    odev f1
-    hw f2
+```bash
+$ bash script.sh
+
+hw f1
+odev f2
+odev f1
+hw f2
+```
 
 ## Additional Notes
 
@@ -78,13 +80,17 @@ You will note that there are a variety of commands in the `exec` family; for thi
 
 The most challenging part is getting the arguments correctly specified. The first argument specifies the program that should be executed, with the full path specified; this is straight-forward. The second argument, `char *argv[]` matches those that the program sees in its function prototype:
 
-    int main(int argc, char *argv[]);
+```c
+int main(int argc, char *argv[]);
+```
 
 Note that this argument is an array of strings, or an array of pointers to characters. For example, if you invoke a program with:
 
-    foo 205  535
+```bash
+foo 205  535
+```
 
-then `argv[0] = "foo", argv[1] = "205" and argv[2] = "535"`.
+then `argv[0] = "foo", argv[1] = "205"` and `argv[2] = "535"`.
 
 Important: the list of arguments must be terminated with a `NULL` pointer; that is, `argv[3] = NULL`.
 
