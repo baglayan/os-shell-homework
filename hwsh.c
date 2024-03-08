@@ -28,13 +28,15 @@
 #include <process.h>
 #define execvp _execvp
 #define chdir _chdir
-#define isatty(STDIN_FILENO) _isatty(_fileno(stdin))
+#define isatty _isatty
+#define fileno _fileno
 #define STDIN_FILENO 0 //oh my god
 #define __HWSH_PATH_MAX_LENGTH MAX_PATH
 #define __DIR_SEPARATOR '\\'
 #endif
 
 #define __HWSH_CMDLINE_MAX_LENGTH 250
+#define __HWSH_ARBITRARY_MAX_LENGTH 127
 
 #define ever (;;)
 
@@ -58,20 +60,24 @@
 #define LOG_ERR  2
 #define LOG_WARN 3
 #define LOG_INFO 4
+#define LOG_HWSH 5
 
-int main_interactive(int argc, char *argv[], char line[], char *commands);
-int main_batch(int argc, char *argv[], char line[], char *commands, FILE *batch_file);
+int main_interactive(int argc, char *argv[], char line[], char *command);
+int main_batch(int argc, char *argv[], char line[], char *command, FILE *batch_file);
+int hwsh_exec(const char *command);
 void hwsh_command_chdir(char *path);
 void hwsh_command_history(char **history, int history_count);
 char *hwsh_util_get_username(void);
 char *hwsh_util_get_hostname(void);
+void hwsh_cli_show_usage(void);
+void hwsh_cli_show_options(void);
 int logger(int logType, const char *format, ...);
 
 int main(int argc, char *argv[])
 {
     if (argc == 2 && strcmp(argv[1], "--help") == 0)
     {
-        logger(LOG_REG, "Usage: Something something");
+        hwsh_cli_show_usage();
         return EXIT_SUCCESS;
     }
     else if (argc == 2 && strcmp(argv[1], "--version") == 0)
@@ -79,33 +85,42 @@ int main(int argc, char *argv[])
         logger(LOG_REG, "HW Shell Development Build\nCopyright (C) Meric Baglayan, 2024");
         return EXIT_SUCCESS;
     }
-    /* Handle wrong arguments here */
-    //
-    // some func():
-    //      printerr("you gave me wrong arguments!!!"")
-    //
-    //
-    //
+    else if (argc == 2 && strncmp(argv[1], "--", 2) == 0)
+    {
+        logger(LOG_HWSH, "unknown option: %s", argv[1]);
+        hwsh_cli_show_usage();
+        hwsh_cli_show_options();
+        return EXIT_FAILURE;
+    }
 
     char line[__HWSH_CMDLINE_MAX_LENGTH];
-    char *commands = NULL;
+    char *command = NULL;
     FILE *batch_file = NULL;
 
-    if (isatty(STDIN_FILENO)) // doesn't work as I want it to
+    if (argc == 1)
     {
-        main_interactive(argc, argv, line, commands);
+        main_interactive(argc, argv, line, command);
         return EXIT_SUCCESS;
     }
     else
     {
-        main_batch(argc, argv, line, commands, batch_file);
+        batch_file = fopen(argv[1], "r");
+        if (batch_file == NULL)
+        {
+            logger(LOG_ERR, "unable to open file %s", argv[1]);
+            return EXIT_FAILURE;
+        }
+
+        main_batch(argc, argv, line, command, batch_file);
+
+        fclose(batch_file);
         return EXIT_SUCCESS;
     }
 
     return EXIT_SUCCESS;
 }
 
-int main_interactive(int argc, char *argv[], char line[], char *commands)
+int main_interactive(int argc, char *argv[], char line[], char *command)
 {
     logger(LOG_INFO, "Interactive mode");
 
@@ -114,19 +129,42 @@ int main_interactive(int argc, char *argv[], char line[], char *commands)
 
     char *username = hwsh_util_get_username();
     char *hostname = hwsh_util_get_hostname();
-
+    
     for ever
     {
         fprintf(stdout, "[%s@%s] $ ", username, hostname);
         fgets(line, __HWSH_CMDLINE_MAX_LENGTH, stdin);
+
+        command = strtok(line, "\n");
+        hwsh_exec(command);
+    }
+
+    free(username);
+    free(hostname);
+
+    return EXIT_SUCCESS;
+}
+
+int main_batch(int argc, char *argv[], char line[], char *command, FILE *batch_file)
+{
+    logger(LOG_INFO, "Batch mode");
+
+    while (fgets(line, __HWSH_CMDLINE_MAX_LENGTH, batch_file) != NULL) {
+        command = strtok(line, "\n");
+        hwsh_exec(command);
     }
 
     return EXIT_SUCCESS;
 }
 
-int main_batch(int argc, char *argv[], char line[], char *commands, FILE *batch_file)
+int hwsh_exec(const char *command)
 {
-    logger(LOG_INFO, "Batch mode");
+    logger(LOG_INFO, "executing %s", command);
+
+    /* some tokenizing logic */
+
+    /* run the command */
+
     return EXIT_SUCCESS;
 }
 
@@ -144,7 +182,7 @@ char *hwsh_util_get_username(void) {
         return username;
     #elif defined __linux__ || __APPLE__
         char *_username = getlogin();
-        char *username = (char *)malloc(sizeof(char) * strlen(_username));
+        char *username = (char *)malloc(sizeof(char) * __HWSH_ARBITRARY_MAX_LENGTH);
         strcpy(username, _username);
         return username;
     #endif
@@ -159,15 +197,25 @@ char *hwsh_util_get_hostname(void) {
     #elif defined __linux__ || __APPLE__
         char _hostname[__HWSH_PATH_MAX_LENGTH];
         gethostname(_hostname, sizeof(_hostname));
-        char *hostname = (char *)malloc(sizeof(char) * strlen(_hostname));
+        char *hostname = (char *)malloc(sizeof(char) * __HWSH_ARBITRARY_MAX_LENGTH);
         strcpy(hostname, _hostname);
         return hostname;
     #endif
 }
 
+void hwsh_cli_show_usage(void)
+{
+    logger(LOG_REG, "Usage:  hwsh [option] ...\n        hwsh [option] script-file ...");
+}
+
+void hwsh_cli_show_options(void)
+{
+    logger(LOG_REG, "Shell options:\n        --help\n        --version");
+}
+
 int logger(int logType, const char *format, ...)
 {
-    if (logType < 0 || logType > 4)
+    if (logType < 0 || logType > 5)
     {
         logger(LOG_ERR, "function logger: wrong logType specified");
         return EXIT_FAILURE;
@@ -200,6 +248,13 @@ int logger(int logType, const char *format, ...)
             vfprintf(stdout, format, args);
             fprintf(stdout, "\n");
             break;
+        case LOG_HWSH:
+            fprintf(stdout, ANSI_COLOR_MAGENTA_BOLD "hwsh: " ANSI_COLOR_RESET);
+            vfprintf(stdout, format, args);
+            fprintf(stdout, "\n");
+            break;
+        default:
+            logger(LOG_ERR, "catastrophic failure");
     }
     return EXIT_SUCCESS;
 }
