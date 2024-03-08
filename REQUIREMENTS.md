@@ -56,9 +56,7 @@ In this assignment, you will implement a command-line shell. Your shell can be r
 
 - You can assume that length of one line in batch file is maximum 250 character.
 
-For example, the commands `ls -a ; grep foo file2` should all be running at the same time; as a result, you may see that their output is intermixed. Each group of commands separated by a pipe `|` should be run similarly to standard Linux; however, the result of all commands before the `|` must be
-
-transferred as a parameter to all commands after the `|`. For instance, in the command `cat f1.txt ; cat f2.txt | grep hw ; grep odev`, the `cat` operation must be applied to both files simultaneously, and the `grep` operation must be applied to their contexts for both `hw` and `odev`.
+For example, the commands `ls -a ; grep foo file2` should all be running at the same time; as a result, you may see that their output is intermixed. Each group of commands separated by a pipe `|` should be run similarly to standard Linux; however, the result of all commands before the `|` must be transferred as a parameter to all commands after the `|`. For instance, in the command `cat f1.txt ; cat f2.txt | grep hw ; grep odev`, the `cat` operation must be applied to both files simultaneously, and the `grep` operation must be applied to their contexts for both `hw` and `odev`.
 
 Example Command line output when executing script.sh batch file in Linux (f1.txt, f2.txt and script.sh is given in Ninova):
 
