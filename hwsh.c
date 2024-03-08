@@ -75,17 +75,17 @@ int logger(int logType, const char *format, ...);
 
 int main(int argc, char *argv[])
 {
-    if (argc == 2 && strcmp(argv[1], "--help") == 0)
+    if (argc == 2 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "--h") == 0))
     {
         hwsh_cli_show_usage();
         return EXIT_SUCCESS;
     }
-    else if (argc == 2 && strcmp(argv[1], "--version") == 0)
+    else if (argc == 2 && (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "--ver") == 0 || strcmp(argv[1], "--v") == 0 || strcmp(argv[1], "-v") == 0))
     {
         logger(LOG_REG, "HW Shell Development Build\nCopyright (C) Meric Baglayan, 2024");
         return EXIT_SUCCESS;
     }
-    else if (argc == 2 && strncmp(argv[1], "--", 2) == 0)
+    else if (argc == 2 && strncmp(argv[1], "--", (size_t)2) == 0)
     {
         logger(LOG_HWSH, "unknown option: %s", argv[1]);
         hwsh_cli_show_usage();
@@ -228,6 +228,7 @@ int logger(int logType, const char *format, ...)
     {
         case STDIN_FILENO:
             logger(LOG_ERR, "function logger: cannot print to STDIN");
+            return EXIT_FAILURE;
             break;
         case LOG_REG:
             vfprintf(stdout, format, args);
