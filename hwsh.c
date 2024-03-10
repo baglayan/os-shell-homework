@@ -71,7 +71,8 @@ void hwsh_command_chdir(char *path);
 void hwsh_command_history(char **history, int history_count);
 char *hwsh_util_get_username(void);
 char *hwsh_util_get_hostname(void);
-static void hwsh_util_str_trim(char *str);
+void hwsh_util_str_trim(char *str);
+void hwsh_util_str_only_one_space(char *str);
 void hwsh_cli_show_usage(void);
 void hwsh_cli_show_options(void);
 int logger(int logType, const char *format, ...);
@@ -133,10 +134,10 @@ int main_interactive(int argc, char *argv[], char line[], char *command)
     char *username = hwsh_util_get_username();
     char *hostname = hwsh_util_get_hostname();
 
-    for
-        ever
+    for ever
         {
-            fprintf(stdout, "[%s@%s] $ ", username, hostname);
+            getcwd(cwd, sizeof(cwd));
+            fprintf(stdout, "[%s@%s] %s $ ", username, hostname, cwd);
             fgets(line, __HWSH_CMDLINE_MAX_LENGTH, stdin);
 
             command = strtok(line, "\n");
@@ -180,6 +181,11 @@ int main_batch(int argc, char *argv[], char line[], char *command, FILE *batch_f
     return EXIT_SUCCESS;
 }
 
+/**
+ * This function is a total mess.
+ * Probably needs a rewrite from scratch.
+ * Hopefully with a clear mind.
+*/
 int hwsh_exec(char *command)
 {
     logger(LOG_INFO, "executing %s", command);
@@ -206,8 +212,66 @@ int hwsh_exec(char *command)
              parallel_cmd = strtok_r(NULL, ";", &parallel_save))
         {
             hwsh_util_str_trim(parallel_cmd);
+            hwsh_util_str_only_one_space(parallel_cmd);
 
             logger(LOG_REG, "[PARALLEL CMD]: [BEGIN]%s[END]", parallel_cmd);
+
+            char *parallel_cmd_argv[__HWSH_ARBITRARY_MAX_LENGTH];
+            int parallel_cmd_argc = 0;
+
+            char *parallel_cmd_arg_save;
+
+            for (char *parallel_cmd_arg = strtok_r(parallel_cmd, " ", &parallel_cmd_arg_save);
+                 parallel_cmd_arg;
+                 parallel_cmd_arg = strtok_r(NULL, " ", &parallel_cmd_arg_save))
+            {
+                parallel_cmd_argv[parallel_cmd_argc++] = parallel_cmd_arg;
+            }
+            parallel_cmd_argv[parallel_cmd_argc] = NULL;
+
+            if (strcmp(parallel_cmd_argv[0], "quit") == 0)
+            {
+                exit(0);
+            }
+            else if ((strcmp(parallel_cmd_argv[0], "cd") == 0) || (strcmp(parallel_cmd_argv[0], "chdir") == 0))
+            {
+                if (parallel_cmd_argv[1] == NULL)
+                {
+                    hwsh_command_chdir(getenv("HOME"));
+                }
+                else
+                {
+                    hwsh_command_chdir(parallel_cmd_argv[1]);
+                }
+            }
+            else if (strcmp(parallel_cmd_argv[0], "history") == 0)
+            {
+                /* call hwsh_command_history with appropriate parameters */
+
+                logger(LOG_HWSH, "history not yet implemented");
+            }
+            else
+            {
+                /* code */
+            }
+            
+
+            pid_t pid_parallel = fork();
+
+            if (pid_parallel == 0)
+            {
+                execvp(parallel_cmd_argv[0], parallel_cmd_argv);
+                exit(0);
+            }
+            else if (pid_parallel < 0)
+            {
+                logger(LOG_ERR, "fork failed");
+            }
+            else
+            {
+                wait(NULL);
+            }
+
             logger(LOG_INFO, "==SEMICOLON==");
         }
     }
@@ -254,7 +318,7 @@ char *hwsh_util_get_hostname(void)
 #endif
 }
 
-static void hwsh_util_str_trim(char *str)
+void hwsh_util_str_trim(char *str)
 {
     if (!str)
     {
@@ -280,6 +344,35 @@ static void hwsh_util_str_trim(char *str)
     }
 
     *endOfString = '\0';
+}
+
+void hwsh_util_str_only_one_space(char *str)
+{
+    if (!str || !*str)
+        return;
+
+    char *writePtr = str;
+    char *readPtr = str;
+
+    int previousWasSpace = 0;
+    while (*readPtr)
+    {
+        if (isspace((unsigned char)*readPtr))
+        {
+            if (!previousWasSpace)
+            {
+                *writePtr++ = ' ';
+                previousWasSpace = 1;
+            }
+        }
+        else
+        {
+            *writePtr++ = *readPtr;
+            previousWasSpace = 0;
+        }
+        readPtr++;
+    }
+    *writePtr = '\0';
 }
 
 void hwsh_cli_show_usage(void)
@@ -335,6 +428,7 @@ int logger(int logType, const char *format, ...)
         break;
     default:
         logger(LOG_ERR, "catastrophic failure");
+        return EXIT_FAILURE;
     }
     return EXIT_SUCCESS;
 }
