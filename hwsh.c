@@ -229,38 +229,18 @@ int hwsh_exec(char *command)
 
             char *parallel_cmd_arg_save;
 
+            // for all arguments of current parallel command
             for (char *parallel_cmd_arg = strtok_r(parallel_cmd, " ", &parallel_cmd_arg_save);
                  parallel_cmd_arg;
                  parallel_cmd_arg = strtok_r(NULL, " ", &parallel_cmd_arg_save))
             {
-                if (parallel_cmd_arg[0] == '\"')
-                {
-                    char *closing_quote = strchr(parallel_cmd_arg + 1, '\"');
-                    if (closing_quote)
-                    {
-                        size_t arg_length = (size_t)(closing_quote - parallel_cmd_arg + 1);
-
-                        char *quoted_arg = malloc(arg_length + 1);
-                        if (quoted_arg)
-                        {
-                            strncpy(quoted_arg, parallel_cmd_arg, arg_length);
-                            quoted_arg[arg_length] = '\0';
-
-                            parallel_cmd_argv[parallel_cmd_argc++] = quoted_arg;
-                        }
-                    }
-                }
-                else
-                {
-                    parallel_cmd_argv[parallel_cmd_argc++] = parallel_cmd_arg;
-                }
+                parallel_cmd_argv[parallel_cmd_argc++] = parallel_cmd_arg;
             }
             // we have a complete argv
             parallel_cmd_argv[parallel_cmd_argc] = NULL;
 
             // copy latest argv into the array of argvs
-            for (int j = 0; j < parallel_cmd_argc; j++)
-            {
+            for (int j = 0; j < parallel_cmd_argc; j++) {
                 all_parallel_argvs[parallel_argv_counter][j] = parallel_cmd_argv[j];
             }
             all_parallel_argvs[parallel_argv_counter][parallel_cmd_argc] = NULL;
