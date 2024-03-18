@@ -7,15 +7,15 @@
 #ifdef __APPLE__
 #include <sys/syslimits.h>
 #include <unistd.h>
-#define __HWSH_PATH_MAX_LENGTH PATH_MAX
-#define __DIR_SEPARATOR '/'
+#define HWSH_PATH_MAX_LENGTH PATH_MAX
+#define HWSH_DIR_SEPARATOR '/'
 #endif
 
 #if defined __linux__ && !defined __ANDROID__
 #include <linux/limits.h>
 #include <unistd.h>
-#define __HWSH_PATH_MAX_LENGTH PATH_MAX
-#define __DIR_SEPARATOR '/'
+#define HWSH_PATH_MAX_LENGTH PATH_MAX
+#define HWSH_DIR_SEPARATOR '/'
 #endif
 
 #if defined _WIN32 || defined _WIN64
@@ -33,12 +33,12 @@
 #define fileno _fileno
 #define pipe _pipe
 #define STDIN_FILENO 0 // oh my god
-#define __HWSH_PATH_MAX_LENGTH MAX_PATH
-#define __DIR_SEPARATOR '\\'
+#define HWSH_PATH_MAX_LENGTH MAX_PATH
+#define HWSH_DIR_SEPARATOR '\\'
 #endif
 
-#define __HWSH_CMDLINE_MAX_LENGTH   250
-#define __HWSH_ARBITRARY_MAX_LENGTH 127
+#define HWSH_CMDLINE_MAX_LENGTH   250
+#define HWSH_ARBITRARY_MAX_LENGTH 127
 
 #define ever (;;)
 
@@ -63,10 +63,12 @@
 #define LOG_WARN 3
 #define LOG_INFO 4
 #define LOG_HWSH 5
+#define LOG_LEX  6
 
 int main_interactive(int argc, char *argv[], char line[], char *command);
 int main_batch(int argc, char *argv[], char line[], char *command, FILE *batch_file);
 int hwsh_exec(char *command);
+int hwsh_builtin_command(char *command, char *first_arg);
 void hwsh_command_chdir(char *path);
 void hwsh_command_history(char **history, int history_count);
 char *hwsh_util_get_username(void);
@@ -86,18 +88,18 @@ int main(int argc, char *argv[])
     }
     else if (argc == 2 && (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "--ver") == 0 || strcmp(argv[1], "--v") == 0 || strcmp(argv[1], "-v") == 0))
     {
-        logger(LOG_REG, "HW Shell Development Build\nCopyright (C) Meric Baglayan, 2024");
+        (void)logger(LOG_REG, "HW Shell Development Build\nCopyright (C) Meric Baglayan, 2024");
         return EXIT_SUCCESS;
     }
     else if (argc == 2 && strncmp(argv[1], "--", (size_t)2) == 0)
     {
-        logger(LOG_HWSH, "unknown option: %s", argv[1]);
+        (void)logger(LOG_HWSH, "unknown option: %s", argv[1]);
         hwsh_cli_show_usage();
         hwsh_cli_show_options();
         return EXIT_FAILURE;
     }
 
-    char line[__HWSH_CMDLINE_MAX_LENGTH];
+    char line[HWSH_CMDLINE_MAX_LENGTH];
     char *command = NULL;
     FILE *batch_file = NULL;
 
@@ -111,7 +113,7 @@ int main(int argc, char *argv[])
         batch_file = fopen(argv[1], "r");
         if (batch_file == NULL)
         {
-            logger(LOG_ERR, "unable to open file %s", argv[1]);
+            (void)logger(LOG_ERR, "unable to open file %s", argv[1]);
             return EXIT_FAILURE;
         }
 
@@ -126,9 +128,9 @@ int main(int argc, char *argv[])
 
 int main_interactive(int argc, char *argv[], char line[], char *command)
 {
-    logger(LOG_INFO, "Interactive mode");
+    (void)logger(LOG_INFO, "Interactive mode");
 
-    char cwd[__HWSH_PATH_MAX_LENGTH];
+    char cwd[HWSH_PATH_MAX_LENGTH];
     getcwd(cwd, sizeof(cwd));
 
     char *username = hwsh_util_get_username();
@@ -138,7 +140,7 @@ int main_interactive(int argc, char *argv[], char line[], char *command)
         {
             getcwd(cwd, sizeof(cwd));
             fprintf(stdout, "[%s@%s] %s $ ", username, hostname, cwd);
-            fgets(line, __HWSH_CMDLINE_MAX_LENGTH, stdin);
+            fgets(line, HWSH_CMDLINE_MAX_LENGTH, stdin);
 
             command = strtok(line, "\n");
             hwsh_exec(command);
@@ -152,19 +154,19 @@ int main_interactive(int argc, char *argv[], char line[], char *command)
 
 int main_batch(int argc, char *argv[], char line[], char *command, FILE *batch_file)
 {
-    logger(LOG_INFO, "Batch mode");
+    (void)logger(LOG_INFO, "Batch mode");
 
-    fgets(line, __HWSH_CMDLINE_MAX_LENGTH, batch_file);
+    fgets(line, HWSH_CMDLINE_MAX_LENGTH, batch_file);
     command = strtok(line, "\n");
     if (strncmp(command, "#!", (size_t)2) == 0)
     {
         if (strstr(command, "hwsh") != NULL)
         {
-            logger(LOG_INFO, "Batch file designed for hwsh");
+            (void)logger(LOG_INFO, "Batch file designed for hwsh");
         }
         else
         {
-            logger(LOG_WARN, "Batch file not designed for hwsh");
+            (void)logger(LOG_WARN, "Batch file not designed for hwsh");
         }
     }
     else
@@ -172,7 +174,7 @@ int main_batch(int argc, char *argv[], char line[], char *command, FILE *batch_f
         hwsh_exec(command);
     }
 
-    while (fgets(line, __HWSH_CMDLINE_MAX_LENGTH, batch_file) != NULL)
+    while (fgets(line, HWSH_CMDLINE_MAX_LENGTH, batch_file) != NULL)
     {
         command = strtok(line, "\n");
         hwsh_exec(command);
@@ -188,7 +190,7 @@ int main_batch(int argc, char *argv[], char line[], char *command, FILE *batch_f
 */
 int hwsh_exec(char *command)
 {
-    logger(LOG_INFO, "executing %s", command);
+    (void)logger(LOG_INFO, "executing %s", command);
 
     /* tokenizer logic */
 
@@ -205,8 +207,14 @@ int hwsh_exec(char *command)
     {
         hwsh_util_str_trim(cluster);
 
-        logger(LOG_REG, "[PIPEE CLUSTER]: [BEGIN]%s[END]", cluster);
-        logger(LOG_INFO, "==PIPE==");
+        (void)logger(LOG_LEX, "[PIPEE CLUSTER]: [BEGIN]%s[END]", cluster);
+        (void)logger(LOG_LEX, "==PIPE==");
+
+        char *all_parallel_argvs[HWSH_ARBITRARY_MAX_LENGTH][HWSH_ARBITRARY_MAX_LENGTH];
+
+        int parallel_argv_counter = 0;
+        
+        // for all parallel command 
         for (char *parallel_cmd = strtok_r(cluster, ";", &parallel_save);
              parallel_cmd;
              parallel_cmd = strtok_r(NULL, ";", &parallel_save))
@@ -214,9 +222,9 @@ int hwsh_exec(char *command)
             hwsh_util_str_trim(parallel_cmd);
             hwsh_util_str_only_one_space(parallel_cmd);
 
-            logger(LOG_REG, "[PARALLEL CMD]: [BEGIN]%s[END]", parallel_cmd);
+            (void)logger(LOG_LEX, "[PARALLEL CMD]: [BEGIN]%s[END]", parallel_cmd);
 
-            char *parallel_cmd_argv[__HWSH_ARBITRARY_MAX_LENGTH];
+            char *parallel_cmd_argv[HWSH_ARBITRARY_MAX_LENGTH];
             int parallel_cmd_argc = 0;
 
             char *parallel_cmd_arg_save;
@@ -225,65 +233,110 @@ int hwsh_exec(char *command)
                  parallel_cmd_arg;
                  parallel_cmd_arg = strtok_r(NULL, " ", &parallel_cmd_arg_save))
             {
-                parallel_cmd_argv[parallel_cmd_argc++] = parallel_cmd_arg;
-            }
-            parallel_cmd_argv[parallel_cmd_argc] = NULL;
-
-            if (strcmp(parallel_cmd_argv[0], "quit") == 0)
-            {
-                exit(0);
-            }
-            else if ((strcmp(parallel_cmd_argv[0], "cd") == 0) || (strcmp(parallel_cmd_argv[0], "chdir") == 0))
-            {
-                if (parallel_cmd_argv[1] == NULL)
+                if (parallel_cmd_arg[0] == '\"')
                 {
-                    hwsh_command_chdir(getenv("HOME"));
+                    char *closing_quote = strchr(parallel_cmd_arg + 1, '\"');
+                    if (closing_quote)
+                    {
+                        size_t arg_length = (size_t)(closing_quote - parallel_cmd_arg + 1);
+
+                        char *quoted_arg = malloc(arg_length + 1);
+                        if (quoted_arg)
+                        {
+                            strncpy(quoted_arg, parallel_cmd_arg, arg_length);
+                            quoted_arg[arg_length] = '\0';
+
+                            parallel_cmd_argv[parallel_cmd_argc++] = quoted_arg;
+                        }
+                    }
                 }
                 else
                 {
-                    hwsh_command_chdir(parallel_cmd_argv[1]);
+                    parallel_cmd_argv[parallel_cmd_argc++] = parallel_cmd_arg;
                 }
             }
-            else if (strcmp(parallel_cmd_argv[0], "history") == 0)
-            {
-                /* call hwsh_command_history with appropriate parameters */
+            // we have a complete argv
+            parallel_cmd_argv[parallel_cmd_argc] = NULL;
 
-                logger(LOG_HWSH, "history not yet implemented");
-            }
-            else
+            // copy latest argv into the array of argvs
+            for (int j = 0; j < parallel_cmd_argc; j++)
             {
-                /* code */
+                all_parallel_argvs[parallel_argv_counter][j] = parallel_cmd_argv[j];
             }
-            
+            all_parallel_argvs[parallel_argv_counter][parallel_cmd_argc] = NULL;
+            parallel_argv_counter++;
+            all_parallel_argvs[parallel_argv_counter][0] = NULL;
 
-            pid_t pid_parallel = fork();
+            (void)logger(LOG_LEX, "==SEMICOLON==");
+        }
 
-            if (pid_parallel == 0)
-            {
-                execvp(parallel_cmd_argv[0], parallel_cmd_argv);
-                exit(0);
-            }
-            else if (pid_parallel < 0)
-            {
-                logger(LOG_ERR, "fork failed");
-            }
-            else
-            {
-                wait(NULL);
-            }
+        // execute all_parallel_argvs in parallel
 
-            logger(LOG_INFO, "==SEMICOLON==");
+        for (int i = 0; i < parallel_argv_counter; i++)
+        {
+            if (hwsh_builtin_command(all_parallel_argvs[i][0], all_parallel_argvs[i][1]) != 0)
+            {
+                // not builtin code
+
+                pid_t pid_parallel = fork();
+
+                if (pid_parallel == 0)
+                {
+                    (void)logger(LOG_INFO, "child process with pid %d", getpid());
+                    execvp(all_parallel_argvs[i][0], all_parallel_argvs[i]);
+                    exit(0);
+                }
+                else if (pid_parallel < 0)
+                {
+                    (void)logger(LOG_ERR, "fork failed");
+                }
+                else
+                {
+                    (void)logger(LOG_INFO, "parent process with pid %d", getpid());
+                    continue;
+                    // wait(NULL);
+                }
+            }
         }
     }
 
     return EXIT_SUCCESS;
 }
 
+int hwsh_builtin_command(char *command, char *firstArg)
+{
+    if (strcmp(command, "quit") == 0)
+    {
+        exit(0);
+    }
+    else if ((strcmp(command, "cd") == 0) || (strcmp(command, "chdir") == 0))
+    {
+        if (firstArg == NULL)
+        {
+            hwsh_command_chdir(getenv("HOME"));
+        }
+        else
+        {
+            hwsh_command_chdir(firstArg);
+        }
+        return EXIT_SUCCESS;
+    }
+    else if (strcmp(command, "history") == 0)
+    {
+        /* call hwsh_command_history with appropriate parameters */
+
+        (void)logger(LOG_HWSH, "history not yet implemented");
+
+        return EXIT_SUCCESS;
+    }
+    return EXIT_FAILURE;
+}
+
 void hwsh_command_chdir(char *path)
 {
     if (chdir(path) != 0)
     {
-        logger(LOG_ERR, "Error: Unable to change directory to %s", path);
+        (void)logger(LOG_ERR, "unable to change directory to %s", path);
     }
 }
 
@@ -296,7 +349,7 @@ char *hwsh_util_get_username(void)
     return username;
 #elif defined __linux__ || __APPLE__
     char *_username = getlogin();
-    char *username = (char *)malloc(sizeof(char) * __HWSH_ARBITRARY_MAX_LENGTH);
+    char *username = (char *)malloc(sizeof(char) * HWSH_ARBITRARY_MAX_LENGTH);
     strcpy(username, _username);
     return username;
 #endif
@@ -310,9 +363,9 @@ char *hwsh_util_get_hostname(void)
     GetComputerName(hostname, &hostname_len);
     return hostname;
 #elif defined __linux__ || __APPLE__
-    char _hostname[__HWSH_PATH_MAX_LENGTH];
+    char _hostname[HWSH_PATH_MAX_LENGTH];
     gethostname(_hostname, sizeof(_hostname));
-    char *hostname = (char *)malloc(sizeof(char) * __HWSH_ARBITRARY_MAX_LENGTH);
+    char *hostname = (char *)malloc(sizeof(char) * HWSH_ARBITRARY_MAX_LENGTH);
     strcpy(hostname, _hostname);
     return hostname;
 #endif
@@ -322,7 +375,7 @@ void hwsh_util_str_trim(char *str)
 {
     if (!str)
     {
-        logger(LOG_ERR, "str_trim: str is NULL");
+        (void)logger(LOG_ERR, "str_trim: str is NULL");
         exit(EXIT_FAILURE);
     }
 
@@ -377,19 +430,19 @@ void hwsh_util_str_only_one_space(char *str)
 
 void hwsh_cli_show_usage(void)
 {
-    logger(LOG_REG, "Usage:  hwsh [option] ...\n        hwsh [option] script-file ...");
+    (void)logger(LOG_REG, "Usage:  hwsh [option] ...\n        hwsh [option] script-file ...");
 }
 
 void hwsh_cli_show_options(void)
 {
-    logger(LOG_REG, "Shell options:\n        --help\n        --version");
+    (void)logger(LOG_REG, "Shell options:\n        --help\n        --version");
 }
 
 int logger(int logType, const char *format, ...)
 {
-    if (logType < 0 || logType > 5)
+    if (logType < 0 || logType > 6)
     {
-        logger(LOG_ERR, "function logger: wrong logType specified");
+        (void)logger(LOG_ERR, "function logger: wrong logType specified");
         return EXIT_FAILURE;
     }
 
@@ -399,7 +452,7 @@ int logger(int logType, const char *format, ...)
     switch (logType)
     {
     case STDIN_FILENO:
-        logger(LOG_ERR, "function logger: cannot print to STDIN");
+        (void)logger(LOG_ERR, "function logger: cannot print to STDIN");
         return EXIT_FAILURE;
         break;
     case LOG_REG:
@@ -426,8 +479,13 @@ int logger(int logType, const char *format, ...)
         vfprintf(stdout, format, args);
         fprintf(stdout, "\n");
         break;
+    case LOG_LEX:
+        fprintf(stdout, ANSI_COLOR_MAGENTA_BOLD "lexer: " ANSI_COLOR_RESET);
+        vfprintf(stdout, format, args);
+        fprintf(stdout, "\n");
+        break;
     default:
-        logger(LOG_ERR, "catastrophic failure");
+        (void)logger(LOG_ERR, "catastrophic failure");
         return EXIT_FAILURE;
     }
     return EXIT_SUCCESS;
