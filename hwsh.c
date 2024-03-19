@@ -116,7 +116,7 @@ int main(int argc, char *argv[])
         batch_file = fopen(argv[1], "r");
         if (batch_file == NULL)
         {
-            logger(LOG_ERR, "unable to open file %s", argv[1]);
+            logger(LOG_HWSH, "unable to open file %s", argv[1]);
             return EXIT_FAILURE;
         }
 
@@ -278,7 +278,7 @@ int hwsh_exec(char *command)
                 {
                     logger(LOG_INFO, "child process with pid %d", getpid());
                     execvp(all_parallel_argvs[i][0], all_parallel_argvs[i]);
-                    logger(LOG_ERR, "command not found: %s", all_parallel_argvs[i][0]);
+                    logger(LOG_HWSH, "command not found: %s", all_parallel_argvs[i][0]);
                     exit(0);
                 }
 
@@ -286,6 +286,7 @@ int hwsh_exec(char *command)
                 else if (pid_parallel < 0)
                 {
                     logger(LOG_ERR, "fork failed");
+                    exit(1);
                 }
 
                 // parent process
@@ -329,6 +330,7 @@ int hwsh_exec(char *command)
                 if (!CreateProcess(NULL, all_parallel_argvs[i][0], NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
                 {
                     logger(LOG_ERR, "CreateProcess failed (%d).\n", GetLastError());
+                    exit(1);
                 }
                 else
                 {
@@ -386,7 +388,7 @@ void hwsh_command_chdir(char *path)
 {
     if (chdir(path) != 0)
     {
-        logger(LOG_ERR, "unable to change directory to %s", path);
+        logger(LOG_HWSH, "unable to change directory to %s", path);
     }
 }
 
@@ -510,19 +512,19 @@ int logger(int logType, const char *format, ...)
         fprintf(stdout, "\n");
         break;
     case LOG_INFO:
-        fprintf(stdout, ANSI_COLOR_BLUE_BOLD "info: " ANSI_COLOR_RESET);
-        vfprintf(stdout, format, args);
-        fprintf(stdout, "\n");
+        fprintf(stderr, ANSI_COLOR_BLUE_BOLD "info: " ANSI_COLOR_RESET);
+        vfprintf(stderr, format, args);
+        fprintf(stderr, "\n");
         break;
     case LOG_WARN:
-        fprintf(stdout, ANSI_COLOR_YELLOW_BOLD "warn: " ANSI_COLOR_RESET);
-        vfprintf(stdout, format, args);
-        fprintf(stdout, "\n");
+        fprintf(stderr, ANSI_COLOR_YELLOW_BOLD "warn: " ANSI_COLOR_RESET);
+        vfprintf(stderr, format, args);
+        fprintf(stderr, "\n");
         break;
     case LOG_ERR:
-        fprintf(stdout, ANSI_COLOR_RED_BOLD "error: " ANSI_COLOR_RESET);
-        vfprintf(stdout, format, args);
-        fprintf(stdout, "\n");
+        fprintf(stderr, ANSI_COLOR_RED_BOLD "error: " ANSI_COLOR_RESET);
+        vfprintf(stderr, format, args);
+        fprintf(stderr, "\n");
         break;
     case LOG_HWSH:
         fprintf(stdout, ANSI_COLOR_MAGENTA_BOLD "hwsh: " ANSI_COLOR_RESET);
@@ -530,9 +532,9 @@ int logger(int logType, const char *format, ...)
         fprintf(stdout, "\n");
         break;
     case LOG_LEX:
-        fprintf(stdout, ANSI_COLOR_MAGENTA_BOLD "lexer: " ANSI_COLOR_RESET);
-        vfprintf(stdout, format, args);
-        fprintf(stdout, "\n");
+        fprintf(stderr, ANSI_COLOR_MAGENTA_BOLD "lexer: " ANSI_COLOR_RESET);
+        vfprintf(stderr, format, args);
+        fprintf(stderr, "\n");
         break;
     default:
         logger(LOG_ERR, "catastrophic failure");
