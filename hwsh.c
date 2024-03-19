@@ -88,12 +88,12 @@ int main(int argc, char *argv[])
     }
     else if (argc == 2 && (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "--ver") == 0 || strcmp(argv[1], "--v") == 0 || strcmp(argv[1], "-v") == 0))
     {
-        (void)logger(LOG_REG, "HW Shell Development Build\nCopyright (C) Meric Baglayan, 2024");
+        logger(LOG_REG, "HW Shell Development Build\nCopyright (C) Meric Baglayan, 2024");
         return EXIT_SUCCESS;
     }
     else if (argc == 2 && strncmp(argv[1], "--", (size_t)2) == 0)
     {
-        (void)logger(LOG_HWSH, "unknown option: %s", argv[1]);
+        logger(LOG_HWSH, "unknown option: %s", argv[1]);
         hwsh_cli_show_usage();
         hwsh_cli_show_options();
         return EXIT_FAILURE;
@@ -113,7 +113,7 @@ int main(int argc, char *argv[])
         batch_file = fopen(argv[1], "r");
         if (batch_file == NULL)
         {
-            (void)logger(LOG_ERR, "unable to open file %s", argv[1]);
+            logger(LOG_ERR, "unable to open file %s", argv[1]);
             return EXIT_FAILURE;
         }
 
@@ -128,7 +128,7 @@ int main(int argc, char *argv[])
 
 int main_interactive(int argc, char *argv[], char line[], char *command)
 {
-    (void)logger(LOG_INFO, "Interactive mode");
+    logger(LOG_INFO, "Interactive mode");
 
     char cwd[HWSH_PATH_MAX_LENGTH];
     getcwd(cwd, sizeof(cwd));
@@ -154,7 +154,7 @@ int main_interactive(int argc, char *argv[], char line[], char *command)
 
 int main_batch(int argc, char *argv[], char line[], char *command, FILE *batch_file)
 {
-    (void)logger(LOG_INFO, "Batch mode");
+    logger(LOG_INFO, "Batch mode");
 
     fgets(line, HWSH_CMDLINE_MAX_LENGTH, batch_file);
     command = strtok(line, "\n");
@@ -162,11 +162,11 @@ int main_batch(int argc, char *argv[], char line[], char *command, FILE *batch_f
     {
         if (strstr(command, "hwsh") != NULL)
         {
-            (void)logger(LOG_INFO, "Batch file designed for hwsh");
+            logger(LOG_INFO, "Batch file designed for hwsh");
         }
         else
         {
-            (void)logger(LOG_WARN, "Batch file not designed for hwsh");
+            logger(LOG_WARN, "Batch file not designed for hwsh");
         }
     }
     else
@@ -190,7 +190,7 @@ int main_batch(int argc, char *argv[], char line[], char *command, FILE *batch_f
 */
 int hwsh_exec(char *command)
 {
-    (void)logger(LOG_INFO, "executing %s", command);
+    logger(LOG_INFO, "executing %s", command);
 
     /* tokenizer logic */
 
@@ -207,12 +207,14 @@ int hwsh_exec(char *command)
     {
         hwsh_util_str_trim(cluster);
 
-        (void)logger(LOG_LEX, "[PIPEE CLUSTER]: [BEGIN]%s[END]", cluster);
-        (void)logger(LOG_LEX, "==PIPE==");
+        logger(LOG_LEX, "[PIPEE CLUSTER]: [BEGIN]%s[END]", cluster);
+        logger(LOG_LEX, "==PIPE==");
 
         char *all_parallel_argvs[HWSH_ARBITRARY_MAX_LENGTH][HWSH_ARBITRARY_MAX_LENGTH];
 
-        int parallel_argv_counter = 0;
+        pid_t child_pids[HWSH_ARBITRARY_MAX_LENGTH];
+
+        size_t parallel_argv_counter = 0;
         
         // for all parallel command 
         for (char *parallel_cmd = strtok_r(cluster, ";", &parallel_save);
@@ -222,7 +224,7 @@ int hwsh_exec(char *command)
             hwsh_util_str_trim(parallel_cmd);
             hwsh_util_str_only_one_space(parallel_cmd);
 
-            (void)logger(LOG_LEX, "[PARALLEL CMD]: [BEGIN]%s[END]", parallel_cmd);
+            logger(LOG_LEX, "[PARALLEL CMD]: [BEGIN]%s[END]", parallel_cmd);
 
             char *parallel_cmd_argv[HWSH_ARBITRARY_MAX_LENGTH];
             int parallel_cmd_argc = 0;
@@ -247,34 +249,114 @@ int hwsh_exec(char *command)
             parallel_argv_counter++;
             all_parallel_argvs[parallel_argv_counter][0] = NULL;
 
-            (void)logger(LOG_LEX, "==SEMICOLON==");
+            logger(LOG_LEX, "==SEMICOLON==");
         }
 
         // execute all_parallel_argvs in parallel
 
-        for (int i = 0; i < parallel_argv_counter; i++)
+        // TODO: check if there's a single command or multiple parallel commands
+
+        /**
+         * Single command.
+        */
+        if (parallel_argv_counter < 2)
         {
-            if (hwsh_builtin_command(all_parallel_argvs[i][0], all_parallel_argvs[i][1]) != 0)
+            logger(LOG_INFO, "only single command will be run");
+            if (hwsh_builtin_command(all_parallel_argvs[0][0], all_parallel_argvs[0][1]) != 0)
             {
-                // not builtin code
+                // not builtin command
 
                 pid_t pid_parallel = fork();
 
+                // child process
                 if (pid_parallel == 0)
                 {
-                    (void)logger(LOG_INFO, "child process with pid %d", getpid());
-                    execvp(all_parallel_argvs[i][0], all_parallel_argvs[i]);
+                    logger(LOG_INFO, "child process with pid %d", getpid());
+                    execvp(all_parallel_argvs[0][0], all_parallel_argvs[0]);
                     exit(0);
                 }
+
+                // failed fork
                 else if (pid_parallel < 0)
                 {
-                    (void)logger(LOG_ERR, "fork failed");
+                    logger(LOG_ERR, "fork failed");
                 }
+                
+                // parent process
                 else
                 {
-                    (void)logger(LOG_INFO, "parent process with pid %d", getpid());
+                    logger(LOG_INFO, "parent process with pid %d", getpid());
+
+                    int childStatus;
+                    waitpid(pid_parallel, &childStatus, 0);
+
+                    logger(LOG_INFO, "this is parent process. it has successfully waited for child with pid %d", pid_parallel);
+
                     continue;
-                    // wait(NULL);
+                }
+            }
+        }
+
+        /**
+         * Multiple commands.
+        */
+        else if (parallel_argv_counter >= 2)
+        {
+            logger(LOG_INFO, "multiple commands are to be run in parallel");
+            int num_pids = 0;
+
+            for (size_t i = 0; i < parallel_argv_counter; i++)
+            {
+                int builtin_result = hwsh_builtin_command(all_parallel_argvs[i][0], all_parallel_argvs[i][1]);
+
+                if (builtin_result != 0)
+                {
+                    // not builtin command
+
+                    pid_t pid_parallel = fork();
+                    child_pids[num_pids++] = pid_parallel;
+
+                    // child process
+                    if (pid_parallel == 0)
+                    {
+                        logger(LOG_INFO, "child process with pid %d", getpid());
+                        execvp(all_parallel_argvs[i][0], all_parallel_argvs[i]);
+                        exit(0);
+                    }
+
+                    // failed fork
+                    else if (pid_parallel < 0)
+                    {
+                        logger(LOG_ERR, "fork failed");
+                    }
+
+                    // parent process
+                    else
+                    {
+                        
+
+                        logger(LOG_INFO, "parent process with pid %d", getpid());
+
+                        // ls :: i = 0 :: parallel_argv_counter = 3 :: continue;
+                        // ls :: i = 1 :: parallel_argv_counter = 3 :: continue;
+                        // ls :: i = 2 :: parallel_argv_counter = 3 :: for (...) waitpid();
+                        
+                        if (i >= parallel_argv_counter - 1)
+                        {
+                            for (int j = 0; j < num_pids; j++)
+                            {
+                                int status;
+                                waitpid(child_pids[j], &status, 0);
+                            }
+                        }
+                        else
+                        {
+                            continue;
+                        }
+                        
+                    }
+
+                    
                 }
             }
         }
@@ -305,7 +387,7 @@ int hwsh_builtin_command(char *command, char *firstArg)
     {
         /* call hwsh_command_history with appropriate parameters */
 
-        (void)logger(LOG_HWSH, "history not yet implemented");
+        logger(LOG_HWSH, "history not yet implemented");
 
         return EXIT_SUCCESS;
     }
@@ -316,7 +398,7 @@ void hwsh_command_chdir(char *path)
 {
     if (chdir(path) != 0)
     {
-        (void)logger(LOG_ERR, "unable to change directory to %s", path);
+        logger(LOG_ERR, "unable to change directory to %s", path);
     }
 }
 
@@ -355,7 +437,7 @@ void hwsh_util_str_trim(char *str)
 {
     if (!str)
     {
-        (void)logger(LOG_ERR, "str_trim: str is NULL");
+        logger(LOG_ERR, "str_trim: str is NULL");
         exit(EXIT_FAILURE);
     }
 
@@ -410,19 +492,19 @@ void hwsh_util_str_only_one_space(char *str)
 
 void hwsh_cli_show_usage(void)
 {
-    (void)logger(LOG_REG, "Usage:  hwsh [option] ...\n        hwsh [option] script-file ...");
+    logger(LOG_REG, "Usage:  hwsh [option] ...\n        hwsh [option] script-file ...");
 }
 
 void hwsh_cli_show_options(void)
 {
-    (void)logger(LOG_REG, "Shell options:\n        --help\n        --version");
+    logger(LOG_REG, "Shell options:\n        --help\n        --version");
 }
 
 int logger(int logType, const char *format, ...)
 {
     if (logType < 0 || logType > 6)
     {
-        (void)logger(LOG_ERR, "function logger: wrong logType specified");
+        logger(LOG_ERR, "function logger: wrong logType specified");
         return EXIT_FAILURE;
     }
 
@@ -432,7 +514,7 @@ int logger(int logType, const char *format, ...)
     switch (logType)
     {
     case STDIN_FILENO:
-        (void)logger(LOG_ERR, "function logger: cannot print to STDIN");
+        logger(LOG_ERR, "function logger: cannot print to STDIN");
         return EXIT_FAILURE;
         break;
     case LOG_REG:
@@ -465,7 +547,7 @@ int logger(int logType, const char *format, ...)
         fprintf(stdout, "\n");
         break;
     default:
-        (void)logger(LOG_ERR, "catastrophic failure");
+        logger(LOG_ERR, "catastrophic failure");
         return EXIT_FAILURE;
     }
     return EXIT_SUCCESS;
