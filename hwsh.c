@@ -1,3 +1,4 @@
+// clang-format off
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -64,6 +65,8 @@
 #define LOG_INFO 4
 #define LOG_HWSH 5
 #define LOG_LEX  6
+
+// clang-format on
 
 int main_interactive(int argc, char *argv[], char line[], char *command);
 int main_batch(int argc, char *argv[], char line[], char *command, FILE *batch_file);
@@ -136,7 +139,8 @@ int main_interactive(int argc, char *argv[], char line[], char *command)
     char *username = hwsh_util_get_username();
     char *hostname = hwsh_util_get_hostname();
 
-    for ever
+    for
+        ever
         {
             getcwd(cwd, sizeof(cwd));
             fprintf(stdout, "[%s@%s] %s $ ", username, hostname, cwd);
@@ -187,7 +191,7 @@ int main_batch(int argc, char *argv[], char line[], char *command, FILE *batch_f
  * This function is a total mess.
  * Probably needs a rewrite from scratch.
  * Hopefully with a clear mind.
-*/
+ */
 int hwsh_exec(char *command)
 {
     logger(LOG_INFO, "executing %s", command);
@@ -215,8 +219,8 @@ int hwsh_exec(char *command)
         pid_t child_pids[HWSH_ARBITRARY_MAX_LENGTH];
 
         size_t parallel_argv_counter = 0;
-        
-        // for all parallel command 
+
+        // for all parallel command
         for (char *parallel_cmd = strtok_r(cluster, ";", &parallel_save);
              parallel_cmd;
              parallel_cmd = strtok_r(NULL, ";", &parallel_save))
@@ -242,7 +246,8 @@ int hwsh_exec(char *command)
             parallel_cmd_argv[parallel_cmd_argc] = NULL;
 
             // copy latest argv into the array of argvs
-            for (int j = 0; j < parallel_cmd_argc; j++) {
+            for (int j = 0; j < parallel_cmd_argc; j++)
+            {
                 all_parallel_argvs[parallel_argv_counter][j] = parallel_cmd_argv[j];
             }
             all_parallel_argvs[parallel_argv_counter][parallel_cmd_argc] = NULL;
@@ -254,25 +259,26 @@ int hwsh_exec(char *command)
 
         // execute all_parallel_argvs in parallel
 
-        // TODO: check if there's a single command or multiple parallel commands
+        int num_pids = 0;
 
-        /**
-         * Single command.
-        */
-        if (parallel_argv_counter < 2)
+        for (size_t i = 0; i < parallel_argv_counter; i++)
         {
-            logger(LOG_INFO, "only single command will be run");
-            if (hwsh_builtin_command(all_parallel_argvs[0][0], all_parallel_argvs[0][1]) != 0)
+            int builtin_result = hwsh_builtin_command(all_parallel_argvs[i][0], all_parallel_argvs[i][1]);
+#if !defined _WIN32 || !defined _WIN64
+
+            if (builtin_result != 0)
             {
                 // not builtin command
 
                 pid_t pid_parallel = fork();
+                child_pids[num_pids++] = pid_parallel;
 
                 // child process
                 if (pid_parallel == 0)
                 {
                     logger(LOG_INFO, "child process with pid %d", getpid());
-                    execvp(all_parallel_argvs[0][0], all_parallel_argvs[0]);
+                    execvp(all_parallel_argvs[i][0], all_parallel_argvs[i]);
+                    logger(LOG_ERR, "command not found: %s", all_parallel_argvs[i][0]);
                     exit(0);
                 }
 
@@ -281,88 +287,70 @@ int hwsh_exec(char *command)
                 {
                     logger(LOG_ERR, "fork failed");
                 }
-                
+
                 // parent process
                 else
                 {
                     logger(LOG_INFO, "parent process with pid %d", getpid());
 
-                    int childStatus;
-                    waitpid(pid_parallel, &childStatus, 0);
+                    // ls :: i = 0 :: parallel_argv_counter = 3 :: continue;
+                    // ls :: i = 1 :: parallel_argv_counter = 3 :: continue;
+                    // ls :: i = 2 :: parallel_argv_counter = 3 :: waitpid for all children;
 
-                    logger(LOG_INFO, "this is parent process. it has successfully waited for child with pid %d", pid_parallel);
+                    if (i >= parallel_argv_counter - 1)
+                    {
+                        for (int j = 0; j < num_pids; j++)
+                        {
+                            int status;
+                            waitpid(child_pids[j], &status, 0);
+                        }
+                    }
+                    else
+                    {
+                        continue;
+                    }
+                }
+            }
+#endif
 
-                    continue;
+#if defined _WIN32 || defined _WIN64
+
+            if (builtin_result != 0)
+            {
+                // not builtin command
+
+                STARTUPINFO si;
+                PROCESS_INFORMATION pi;
+
+                ZeroMemory(&si, sizeof(si));
+                si.cb = sizeof(si);
+                ZeroMemory(&pi, sizeof(pi));
+
+                if (!CreateProcess(NULL, all_parallel_argvs[i][0], NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
+                {
+                    logger(LOG_ERR, "CreateProcess failed (%d).\n", GetLastError());
+                }
+                else
+                {
+                    logger(LOG_INFO, "process created with pid: %d", pi.dwProcessId);
+                    child_processes[i] = pi.hProcess;
                 }
             }
         }
 
-        /**
-         * Multiple commands.
-        */
-        else if (parallel_argv_counter >= 2)
+        for (size_t i = 0; i < parallel_argv_counter; i++)
         {
-            logger(LOG_INFO, "multiple commands are to be run in parallel");
-            int num_pids = 0;
-
-            for (size_t i = 0; i < parallel_argv_counter; i++)
-            {
-                int builtin_result = hwsh_builtin_command(all_parallel_argvs[i][0], all_parallel_argvs[i][1]);
-
-                if (builtin_result != 0)
-                {
-                    // not builtin command
-
-                    pid_t pid_parallel = fork();
-                    child_pids[num_pids++] = pid_parallel;
-
-                    // child process
-                    if (pid_parallel == 0)
-                    {
-                        logger(LOG_INFO, "child process with pid %d", getpid());
-                        execvp(all_parallel_argvs[i][0], all_parallel_argvs[i]);
-                        exit(0);
-                    }
-
-                    // failed fork
-                    else if (pid_parallel < 0)
-                    {
-                        logger(LOG_ERR, "fork failed");
-                    }
-
-                    // parent process
-                    else
-                    {
-                        
-
-                        logger(LOG_INFO, "parent process with pid %d", getpid());
-
-                        // ls :: i = 0 :: parallel_argv_counter = 3 :: continue;
-                        // ls :: i = 1 :: parallel_argv_counter = 3 :: continue;
-                        // ls :: i = 2 :: parallel_argv_counter = 3 :: for (...) waitpid();
-                        
-                        if (i >= parallel_argv_counter - 1)
-                        {
-                            for (int j = 0; j < num_pids; j++)
-                            {
-                                int status;
-                                waitpid(child_pids[j], &status, 0);
-                            }
-                        }
-                        else
-                        {
-                            continue;
-                        }
-                        
-                    }
-
-                    
-                }
-            }
+            WaitForSingleObject(child_processes[i], INFINITE);
+            CloseHandle(child_processes[i]);
         }
     }
 
     return EXIT_SUCCESS;
+#endif
+}
+}
+
+return EXIT_SUCCESS;
 }
 
 int hwsh_builtin_command(char *command, char *firstArg)
