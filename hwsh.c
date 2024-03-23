@@ -7,6 +7,7 @@
 #include <sys/wait.h>
 #include <pwd.h>
 #include <fcntl.h>
+#include <errno.h>
 
 #ifdef __APPLE__
 #include <sys/syslimits.h>
@@ -47,6 +48,12 @@
 
 #define OUTPUT 0
 #define INPUT 1
+
+#define V_REG  1
+#define V_INFO 1
+#define V_WARN 1
+#define V_ERR  1
+#define V_LEX  0
 
 #define ANSI_COLOR_RED     "\x1b[31m"
 #define ANSI_COLOR_GREEN   "\x1b[32m"
@@ -246,8 +253,20 @@ int hwsh_exec(char *command) {
         logger(LOG_LEX, "==PIPE==");
     }
 
+    int pipefd[num_clusters - 1][2];
+    int prev_pipefd[2] = {-1, -1};
+
     for (int i = 0; i < num_clusters; i++) {
         pipe_cluster_t *cluster = clusters[i];
+
+        if (i != num_clusters - 1) { // if not the last cluster, create a pipe for each command
+            for (int j = 0; j < cluster->num_parallel_cmds; j++) {
+                if (pipe(pipefd[i]) == -1) {
+                    perror("pipe");
+                    exit(EXIT_FAILURE);
+                }
+            }
+        }
 
         int num_pids = 0;
         pid_t child_pids[cluster->num_parallel_cmds];
@@ -262,24 +281,45 @@ int hwsh_exec(char *command) {
                 child_pids[num_pids++] = pid_parallel;
 
                 if (pid_parallel == 0) {
-                    logger(LOG_INFO, "child process with pid %d", getpid());
-                    execvp(parallel_cmd->args[0], parallel_cmd->args);
-                    logger(LOG_HWSH, "command not found: %s", parallel_cmd->args[0]);
-                    exit(0);
-                } else if (pid_parallel < 0) {
-                    logger(LOG_ERR, "fork failed");
-                    exit(1);
-                } else {
-                    logger(LOG_INFO, "parent process with pid %d", getpid());
-
-                    if (j >= cluster->num_parallel_cmds - 1) {
-                        for (int k = 0; k < num_pids; k++) {
-                            int status;
-                            waitpid(child_pids[k], &status, 0);
+                    if (prev_pipefd[0] != -1) { // if there is a previous pipe, read from it
+                        if (dup2(prev_pipefd[0], STDIN_FILENO) == -1) {
+                            perror("dup2");
+                            exit(EXIT_FAILURE);
                         }
                     }
+
+                    if (i != num_clusters - 1) { // if not the last cluster, write to the pipe
+                        if (dup2(pipefd[i][1], STDOUT_FILENO) == -1) {
+                            perror("dup2");
+                            exit(EXIT_FAILURE);
+                        }
+                    }
+
+                    execvp(parallel_cmd->args[0], parallel_cmd->args);
+                    perror("execvp");
+                    exit(EXIT_FAILURE);
+                } else if (pid_parallel < 0) {
+                    perror("fork");
+                    exit(EXIT_FAILURE);
                 }
             }
+        }
+
+        if (prev_pipefd[0] != -1) { // close the previous pipe if it exists
+            close(prev_pipefd[0]);
+        }
+
+        if (i != num_clusters - 1) { // if not the last cluster, close the write end of the pipe
+            for (int j = 0; j < cluster->num_parallel_cmds; j++) {
+                close(pipefd[i][1]);
+            }
+        }
+
+        prev_pipefd[0] = pipefd[i][0]; // save the read end of the pipe for the next cluster
+
+        for (int k = 0; k < num_pids; k++) {
+            int status;
+            waitpid(child_pids[k], &status, 0);
         }
     }
 
@@ -425,43 +465,42 @@ int logger(int logType, const char *format, ...) {
       logger(LOG_ERR, "function logger: wrong logType specified");
       return EXIT_FAILURE;
     }
+        va_list args;
+        va_start(args, format);
 
-    va_list args;
-    va_start(args, format);
-
-    char formatln[strlen(format) + 20];
-    switch (logType) {
-    case STDIN_FILENO:
-      logger(LOG_ERR, "function logger: cannot print to STDIN");
-      return EXIT_FAILURE;
-      break;
-    case LOG_REG:
-      sprintf(formatln, ANSI_COLOR_RESET "%s\n", format);
-      vfprintf(stdout, formatln, args);
-      break;
-    case LOG_INFO:
-      sprintf(formatln, ANSI_COLOR_BLUE_BOLD "info: " ANSI_COLOR_RESET "%s\n", format);
-      vfprintf(stderr, formatln, args);
-      break;
-    case LOG_WARN:
-      sprintf(formatln, ANSI_COLOR_YELLOW_BOLD "warn: " ANSI_COLOR_RESET "%s\n", format);
-      vfprintf(stderr, formatln, args);
-      break;
-    case LOG_ERR:
-      sprintf(formatln, ANSI_COLOR_RED_BOLD "error: " ANSI_COLOR_RESET "%s\n", format);
-      vfprintf(stderr, formatln, args);
-      break;
-    case LOG_HWSH:
-      sprintf(formatln, ANSI_COLOR_MAGENTA_BOLD "hwsh: " ANSI_COLOR_RESET "%s\n", format);
-      vfprintf(stdout, formatln, args);
-      break;
-    case LOG_LEX:
-      sprintf(formatln, ANSI_COLOR_MAGENTA_BOLD "lexer: " ANSI_COLOR_RESET "%s\n", format);
-      vfprintf(stderr, formatln, args);
-      break;
-    default:
-      logger(LOG_ERR, "catastrophic failure");
-      return EXIT_FAILURE;
-    }
+        char formatln[strlen(format) + 20];
+        switch (logType) {
+        case STDIN_FILENO:
+        logger(LOG_ERR, "function logger: cannot print to STDIN");
+        return EXIT_FAILURE;
+        break;
+        case LOG_REG:
+        sprintf(formatln, ANSI_COLOR_RESET "%s\n", format);
+        if (V_REG) vfprintf(stdout, formatln, args);
+        break;
+        case LOG_INFO:
+        sprintf(formatln, ANSI_COLOR_BLUE_BOLD "info: " ANSI_COLOR_RESET "%s\n", format);
+        if (V_INFO) vfprintf(stderr, formatln, args);
+        break;
+        case LOG_WARN:
+        sprintf(formatln, ANSI_COLOR_YELLOW_BOLD "warn: " ANSI_COLOR_RESET "%s\n", format);
+        if (V_WARN) vfprintf(stderr, formatln, args);
+        break;
+        case LOG_ERR:
+        sprintf(formatln, ANSI_COLOR_RED_BOLD "error: " ANSI_COLOR_RESET "%s\n", format);
+        if (V_ERR) vfprintf(stderr, formatln, args);
+        break;
+        case LOG_HWSH:
+        sprintf(formatln, ANSI_COLOR_MAGENTA_BOLD "hwsh: " ANSI_COLOR_RESET "%s\n", format);
+        vfprintf(stdout, formatln, args);
+        break;
+        case LOG_LEX:
+        sprintf(formatln, ANSI_COLOR_MAGENTA_BOLD "lexer: " ANSI_COLOR_RESET "%s\n", format);
+        if (V_LEX) vfprintf(stderr, formatln, args);
+        break;
+        default:
+        logger(LOG_ERR, "catastrophic failure");
+        return EXIT_FAILURE;
+        }
     return EXIT_SUCCESS;
 }
