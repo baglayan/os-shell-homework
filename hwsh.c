@@ -6,6 +6,7 @@
 #include <string.h>
 #include <sys/wait.h>
 #include <pwd.h>
+#include <fcntl.h>
 
 #ifdef __APPLE__
 #include <sys/syslimits.h>
@@ -278,7 +279,7 @@ int hwsh_exec(char *command) {
                         }
                     }
                 }
-            }   
+            }
         }
     }
 
