@@ -43,6 +43,7 @@
 #endif
 
 #define HWSH_CMDLINE_MAX_LENGTH   250
+#define HWSH_NUM_HISTORY_MAX      100
 
 #define ever (;;)
 
@@ -90,13 +91,17 @@ typedef struct {
 
 // clang-format on
 
+char *history[HWSH_NUM_HISTORY_MAX];
+int history_start = 0;
+int history_count = 0;
+
 int main_interactive(int argc, char *argv[], char line[], char *command);
 int main_batch(int argc, char *argv[], char line[], char *command,
                FILE *batch_file);
 int hwsh_exec(char *command);
 int hwsh_builtin_command(char *command, char *first_arg);
 void hwsh_command_chdir(char *path);
-void hwsh_command_history(char **history, int history_count);
+void hwsh_command_history(char **history, int history_count, int history_start);
 char *hwsh_util_get_username(void);
 char *hwsh_util_get_hostname(void);
 void hwsh_util_str_trim(char *str);
@@ -164,7 +169,15 @@ int main_interactive(int argc, char *argv[], char line[], char *command) {
 
         command = strtok(line, "\n");
         if (command != NULL) {
-          hwsh_exec(command);
+            if (history_count < HWSH_NUM_HISTORY_MAX) {
+                history[history_count++] = strdup(command);
+            } else {
+                free(history[history_start]);
+                history[history_start] = strdup(command);
+                history_start = (history_start + 1) % HWSH_NUM_HISTORY_MAX;
+            }
+
+            hwsh_exec(command);
         }
       }
 
@@ -346,23 +359,32 @@ int hwsh_exec(char *command) {
     return EXIT_SUCCESS;
 }
 
+void hwsh_command_history(char **history, int history_count, int history_start) {
+    if (history_count == 0) {
+        logger(LOG_HWSH, "command history is empty");
+        return;
+    }
+
+    logger(LOG_HWSH, "command history:");
+    for (int i = history_count - 1; i >= 0; i--) {
+        int index = (history_start + i) % HWSH_NUM_HISTORY_MAX;
+        logger(LOG_REG, "%d: %s", i, history[index]);
+    }
+}
+
 int hwsh_builtin_command(char *command, char *firstArg) {
     if (strcmp(command, "quit") == 0) {
-      exit(0);
-    } else if ((strcmp(command, "cd") == 0) ||
-               (strcmp(command, "chdir") == 0)) {
-      if (firstArg == NULL) {
-        hwsh_command_chdir(getenv("HOME"));
-      } else {
-        hwsh_command_chdir(firstArg);
-      }
-      return EXIT_SUCCESS;
+        exit(0);
+    } else if ((strcmp(command, "cd") == 0) || (strcmp(command, "chdir") == 0)) {
+        if (firstArg == NULL) {
+            hwsh_command_chdir(getenv("HOME"));
+        } else {
+            hwsh_command_chdir(firstArg);
+        }
+        return EXIT_SUCCESS;
     } else if (strcmp(command, "history") == 0) {
-      /* call hwsh_command_history with appropriate parameters */
-
-      logger(LOG_HWSH, "history not yet implemented");
-
-      return EXIT_SUCCESS;
+        hwsh_command_history(history, history_count, history_start);
+        return EXIT_SUCCESS;
     }
     return EXIT_FAILURE;
 }
