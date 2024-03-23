@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
+#include <sys/wait.h>
+#include <pwd.h>
 
 #ifdef __APPLE__
 #include <sys/syslimits.h>
@@ -12,7 +14,7 @@
 #define HWSH_DIR_SEPARATOR '/'
 #endif
 
-#if defined __linux__ && !defined __ANDROID__
+#ifdef __linux__
 #include <linux/limits.h>
 #include <unistd.h>
 #define HWSH_PATH_MAX_LENGTH PATH_MAX
@@ -39,7 +41,6 @@
 #endif
 
 #define HWSH_CMDLINE_MAX_LENGTH   250
-#define HWSH_ARBITRARY_MAX_LENGTH 127
 
 #define ever (;;)
 
@@ -68,6 +69,16 @@
 #define LOG_INFO 4
 #define LOG_HWSH 5
 #define LOG_LEX  6
+
+typedef struct {
+    char **args;
+    int argc;
+} parallel_cmd_t;
+
+typedef struct {
+    parallel_cmd_t **parallel_cmds;
+    int num_parallel_cmds;
+} pipe_cluster_t;
 
 // clang-format on
 
@@ -144,7 +155,9 @@ int main_interactive(int argc, char *argv[], char line[], char *command) {
         fgets(line, HWSH_CMDLINE_MAX_LENGTH, stdin);
 
         command = strtok(line, "\n");
-        hwsh_exec(command);
+        if (command != NULL) {
+          hwsh_exec(command);
+        }
       }
 
     free(username);
@@ -177,133 +190,118 @@ int main_batch(int argc, char *argv[], char line[], char *command,
     return EXIT_SUCCESS;
 }
 
-/**
- * This function is a total mess.
- * Probably needs a rewrite from scratch.
- * Hopefully with a clear mind.
- */
 int hwsh_exec(char *command) {
     logger(LOG_INFO, "executing %s", command);
 
-    // int fds[2];
-    // pipe(fds);
+    char *pipe_save = NULL;
+    char *cluster = strtok_r(command, "|", &pipe_save);
 
-    char *pipe_save;
+    pipe_cluster_t **clusters = NULL;
+    int num_clusters = 0;
 
-    char *all_clusters[HWSH_ARBITRARY_MAX_LENGTH][HWSH_ARBITRARY_MAX_LENGTH]
-                      [HWSH_ARBITRARY_MAX_LENGTH];
-    int cluster_counter = 0;
+    while (cluster) {
+        hwsh_util_str_trim(cluster);
+        logger(LOG_LEX, "[PIPE CLUSTER]: [BEGIN]%s[END]", cluster);
 
-    for (char *cluster = strtok_r(command, "|", &pipe_save); cluster;
-         cluster = strtok_r(NULL, "|", &pipe_save)) {
-      hwsh_util_str_trim(cluster);
+        char *parallel_save = NULL;
+        char *parallel_cmd = strtok_r(cluster, ";", &parallel_save);
 
-      logger(LOG_LEX, "[PIPEE CLUSTER]: [BEGIN]%s[END]", cluster);
-      logger(LOG_LEX, "==PIPE==");
+        pipe_cluster_t *new_cluster = malloc(sizeof(pipe_cluster_t));
+        new_cluster->num_parallel_cmds = 0;
+        new_cluster->parallel_cmds = NULL;
 
-      char *all_parallel_argvs[HWSH_ARBITRARY_MAX_LENGTH]
-                              [HWSH_ARBITRARY_MAX_LENGTH];
-      size_t parallel_argv_counter = 0;
+        while (parallel_cmd) {
+            hwsh_util_str_trim(parallel_cmd);
+            hwsh_util_str_only_one_space(parallel_cmd);
+            logger(LOG_LEX, "[PARALLEL CMD]: [BEGIN]%s[END]", parallel_cmd);
 
-      pid_t child_pids[HWSH_ARBITRARY_MAX_LENGTH];
+            parallel_cmd_t *new_parallel_cmd = malloc(sizeof(parallel_cmd_t));
+            new_parallel_cmd->argc = 0;
+            new_parallel_cmd->args = NULL;
 
-      char *parallel_save;
+            char *arg_save = NULL;
+            char *arg = strtok_r(parallel_cmd, " ", &arg_save);
 
-      // for all parallel command
-      { // parallel command tokenizer
-        for (char *parallel_cmd = strtok_r(cluster, ";", &parallel_save);
-             parallel_cmd; parallel_cmd = strtok_r(NULL, ";", &parallel_save)) {
-          hwsh_util_str_trim(parallel_cmd);
-          hwsh_util_str_only_one_space(parallel_cmd);
-
-          logger(LOG_LEX, "[PARALLEL CMD]: [BEGIN]%s[END]", parallel_cmd);
-
-          { // construct argv
-            char *parallel_cmd_argv[HWSH_ARBITRARY_MAX_LENGTH];
-            int parallel_cmd_argc = 0;
-
-            char *parallel_cmd_arg_save;
-
-            // for all arguments of current parallel command
-            for (char *parallel_cmd_arg =
-                     strtok_r(parallel_cmd, " ", &parallel_cmd_arg_save);
-                 parallel_cmd_arg; parallel_cmd_arg = strtok_r(
-                                       NULL, " ", &parallel_cmd_arg_save)) {
-              parallel_cmd_argv[parallel_cmd_argc++] = parallel_cmd_arg;
+            while (arg) {
+                new_parallel_cmd->args = realloc(new_parallel_cmd->args, (new_parallel_cmd->argc + 1) * sizeof(char *));
+                new_parallel_cmd->args[new_parallel_cmd->argc++] = strdup(arg);
+                arg = strtok_r(NULL, " ", &arg_save);
             }
-            // we have a complete argv
-            parallel_cmd_argv[parallel_cmd_argc] = NULL;
 
-            // copy latest argv into the array of argvs
-            for (int j = 0; j < parallel_cmd_argc; j++) {
-              all_parallel_argvs[parallel_argv_counter][j] =
-                  parallel_cmd_argv[j];
-            }
-            all_parallel_argvs[parallel_argv_counter][parallel_cmd_argc] = NULL;
-            parallel_argv_counter++;
-            all_parallel_argvs[parallel_argv_counter][0] = NULL;
-          }
+            new_parallel_cmd->args = realloc(new_parallel_cmd->args, (new_parallel_cmd->argc + 1) * sizeof(char *));
+            new_parallel_cmd->args[new_parallel_cmd->argc] = NULL;
 
-          logger(LOG_LEX, "==SEMICOLON==");
+            new_cluster->parallel_cmds = realloc(new_cluster->parallel_cmds, (new_cluster->num_parallel_cmds + 1) * sizeof(parallel_cmd_t *));
+            new_cluster->parallel_cmds[new_cluster->num_parallel_cmds++] = new_parallel_cmd;
+
+            parallel_cmd = strtok_r(NULL, ";", &parallel_save);
+            logger(LOG_LEX, "==SEMICOLON==");
         }
-        for (size_t i = 0; i < parallel_argv_counter; i++) {
-          for (size_t j = 0; j < HWSH_ARBITRARY_MAX_LENGTH; j++) {
-            all_clusters[cluster_counter][i][j] = all_parallel_argvs[i][j];
-          }
-        }
-        cluster_counter++;
-      }
 
-      // execute all_parallel_argvs in parallel
+        clusters = realloc(clusters, (num_clusters + 1) * sizeof(pipe_cluster_t *));
+        clusters[num_clusters++] = new_cluster;
 
-      int num_pids = 0;
-
-      for (size_t i = 0; i < parallel_argv_counter; i++) {
-        int builtin_result = hwsh_builtin_command(all_parallel_argvs[i][0],
-                                                  all_parallel_argvs[i][1]);
-
-        if (builtin_result != 0) {
-          // not builtin command
-
-          pid_t pid_parallel = fork();
-          child_pids[num_pids++] = pid_parallel;
-
-          // child process
-          if (pid_parallel == 0) {
-            logger(LOG_INFO, "child process with pid %d", getpid());
-
-            execvp(all_parallel_argvs[i][0], all_parallel_argvs[i]);
-            logger(LOG_HWSH, "command not found: %s", all_parallel_argvs[i][0]);
-            exit(0);
-          }
-
-          // failed fork
-          else if (pid_parallel < 0) {
-            logger(LOG_ERR, "fork failed");
-            exit(1);
-          }
-
-          // parent process
-          else {
-            logger(LOG_INFO, "parent process with pid %d", getpid());
-
-            // ls :: i = 0 :: parallel_argv_counter = 3 :: continue;
-            // ls :: i = 1 :: parallel_argv_counter = 3 :: continue;
-            // ls :: i = 2 :: parallel_argv_counter = 3 :: waitpid for all
-            // children;
-
-            if (i >= parallel_argv_counter - 1) {
-              for (int j = 0; j < num_pids; j++) {
-                int status;
-                waitpid(child_pids[j], &status, 0);
-              }
-            } else {
-              continue;
-            }
-          }
-        }
-      }
+        cluster = strtok_r(NULL, "|", &pipe_save);
+        logger(LOG_LEX, "==PIPE==");
     }
+
+    for (int i = 0; i < num_clusters; i++) {
+        pipe_cluster_t *cluster = clusters[i];
+
+        int num_pids = 0;
+        pid_t child_pids[cluster->num_parallel_cmds];
+
+        for (int j = 0; j < cluster->num_parallel_cmds; j++) {
+            parallel_cmd_t *parallel_cmd = cluster->parallel_cmds[j];
+
+            int builtin_result = hwsh_builtin_command(parallel_cmd->args[0], parallel_cmd->args[1]);
+
+            if (builtin_result != 0) {
+                pid_t pid_parallel = fork();
+                child_pids[num_pids++] = pid_parallel;
+
+                if (pid_parallel == 0) {
+                    logger(LOG_INFO, "child process with pid %d", getpid());
+                    execvp(parallel_cmd->args[0], parallel_cmd->args);
+                    logger(LOG_HWSH, "command not found: %s", parallel_cmd->args[0]);
+                    exit(0);
+                } else if (pid_parallel < 0) {
+                    logger(LOG_ERR, "fork failed");
+                    exit(1);
+                } else {
+                    logger(LOG_INFO, "parent process with pid %d", getpid());
+
+                    if (j >= cluster->num_parallel_cmds - 1) {
+                        for (int k = 0; k < num_pids; k++) {
+                            int status;
+                            waitpid(child_pids[k], &status, 0);
+                        }
+                    }
+                }
+            }   
+        }
+    }
+
+    for (int i = 0; i < num_clusters; i++) {
+        pipe_cluster_t *cluster = clusters[i];
+
+        for (int j = 0; j < cluster->num_parallel_cmds; j++) {
+            parallel_cmd_t *parallel_cmd = cluster->parallel_cmds[j];
+
+            for (int k = 0; k < parallel_cmd->argc; k++) {
+                free(parallel_cmd->args[k]);
+            }
+
+            free(parallel_cmd->args);
+            free(parallel_cmd);
+        }
+
+        free(cluster->parallel_cmds);
+        free(cluster);
+    }
+
+    free(clusters);
+
     return EXIT_SUCCESS;
 }
 
@@ -336,28 +334,30 @@ void hwsh_command_chdir(char *path) {
 
 char *hwsh_util_get_username(void) {
 #if defined _WIN32 || defined _WIN64
-    char *username = malloc(sizeof(char) * (UNLEN + 1));
+    char *username = (char *)malloc(sizeof(char) * (UNLEN + 1));
     DWORD username_len = UNLEN + 1;
     GetUserName(username, &username_len);
     return username;
 #elif defined __linux__ || __APPLE__
-    char *_username = getlogin();
-    char *username = malloc(sizeof(char) * HWSH_ARBITRARY_MAX_LENGTH);
-    strcpy(username, _username);
+    struct passwd *_username = getpwuid(getuid());
+    size_t username_len = strlen(_username->pw_name);
+    char *username = (char *)malloc(sizeof(char) * (username_len + 1));
+    strcpy(username, _username->pw_name);
     return username;
 #endif
 }
 
 char *hwsh_util_get_hostname(void) {
 #if defined _WIN32 || defined _WIN64
-    char *hostname = malloc(sizeof(char) * (UNLEN + 1));
+    char *hostname = (char *)malloc(sizeof(char) * (UNLEN + 1));
     DWORD hostname_len = UNLEN + 1;
     GetComputerName(hostname, &hostname_len);
     return hostname;
 #elif defined __linux__ || __APPLE__
     char _hostname[HWSH_PATH_MAX_LENGTH];
     gethostname(_hostname, sizeof(_hostname));
-    char *hostname = malloc(sizeof(char) * HWSH_ARBITRARY_MAX_LENGTH);
+    size_t hostname_length = strlen(_hostname) + 1;
+    char *hostname = (char *)malloc(sizeof(char) * hostname_length);
     strcpy(hostname, _hostname);
     return hostname;
 #endif
@@ -428,39 +428,35 @@ int logger(int logType, const char *format, ...) {
     va_list args;
     va_start(args, format);
 
+    char formatln[strlen(format) + 20];
     switch (logType) {
     case STDIN_FILENO:
       logger(LOG_ERR, "function logger: cannot print to STDIN");
       return EXIT_FAILURE;
       break;
     case LOG_REG:
-      vfprintf(stdout, format, args);
-      fprintf(stdout, "\n");
+      sprintf(formatln, ANSI_COLOR_RESET "%s\n", format);
+      vfprintf(stdout, formatln, args);
       break;
     case LOG_INFO:
-      fprintf(stderr, ANSI_COLOR_BLUE_BOLD "info: " ANSI_COLOR_RESET);
-      vfprintf(stderr, format, args);
-      fprintf(stderr, "\n");
+      sprintf(formatln, ANSI_COLOR_BLUE_BOLD "info: " ANSI_COLOR_RESET "%s\n", format);
+      vfprintf(stderr, formatln, args);
       break;
     case LOG_WARN:
-      fprintf(stderr, ANSI_COLOR_YELLOW_BOLD "warn: " ANSI_COLOR_RESET);
-      vfprintf(stderr, format, args);
-      fprintf(stderr, "\n");
+      sprintf(formatln, ANSI_COLOR_YELLOW_BOLD "warn: " ANSI_COLOR_RESET "%s\n", format);
+      vfprintf(stderr, formatln, args);
       break;
     case LOG_ERR:
-      fprintf(stderr, ANSI_COLOR_RED_BOLD "error: " ANSI_COLOR_RESET);
-      vfprintf(stderr, format, args);
-      fprintf(stderr, "\n");
+      sprintf(formatln, ANSI_COLOR_RED_BOLD "error: " ANSI_COLOR_RESET "%s\n", format);
+      vfprintf(stderr, formatln, args);
       break;
     case LOG_HWSH:
-      fprintf(stdout, ANSI_COLOR_MAGENTA_BOLD "hwsh: " ANSI_COLOR_RESET);
-      vfprintf(stdout, format, args);
-      fprintf(stdout, "\n");
+      sprintf(formatln, ANSI_COLOR_MAGENTA_BOLD "hwsh: " ANSI_COLOR_RESET "%s\n", format);
+      vfprintf(stdout, formatln, args);
       break;
     case LOG_LEX:
-      fprintf(stderr, ANSI_COLOR_MAGENTA_BOLD "lexer: " ANSI_COLOR_RESET);
-      vfprintf(stderr, format, args);
-      fprintf(stderr, "\n");
+      sprintf(formatln, ANSI_COLOR_MAGENTA_BOLD "lexer: " ANSI_COLOR_RESET "%s\n", format);
+      vfprintf(stderr, formatln, args);
       break;
     default:
       logger(LOG_ERR, "catastrophic failure");
