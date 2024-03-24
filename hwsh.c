@@ -373,7 +373,7 @@ void hwsh_command_history(char **_history, size_t _history_count, size_t _histor
     }
 
     logger(LOG_HWSH, "command history:");
-    for (size_t i = _history_count - 1; i >= 0; i--) {
+    for (size_t i = _history_count - 1; i != 0; i--) {
         size_t index = (_history_start + i) % HWSH_NUM_HISTORY_MAX;
         logger(LOG_REG, "%d: %s", i, _history[index]);
     }
