@@ -154,8 +154,7 @@ int main_interactive(char line[], char *command)
             fprintf(stdout, "[%s@%s] %s $ ", username, hostname, cwd);
 
             if (fgets(line, HWSH_CMDLINE_MAX_LENGTH, stdin) == NULL) {
-                perror("fgets");
-                exit(EXIT_FAILURE);
+                exit(EXIT_SUCCESS);
             }
 
             command = strtok(line, "\n");
