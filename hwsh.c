@@ -24,25 +24,6 @@
 #define HWSH_DIR_SEPARATOR '/'
 #endif
 
-#if defined _WIN32 || defined _WIN64
-#pragma comment(lib, "Ws2_32.lib")
-#pragma comment(lib, "Advapi32.lib")
-#include <Lmcons.h>
-#include <winsock2.h>
-#include <windows.h>
-#include <winbase.h>
-#include <io.h>
-#include <process.h>
-#define execvp _execvp
-#define chdir _chdir
-#define isatty _isatty
-#define fileno _fileno
-#define pipe _pipe
-#define STDIN_FILENO 0 // oh my god
-#define HWSH_PATH_MAX_LENGTH MAX_PATH
-#define HWSH_DIR_SEPARATOR '\\'
-#endif
-
 #define HWSH_CMDLINE_MAX_LENGTH   250
 #define HWSH_NUM_HISTORY_MAX      100
 
@@ -425,35 +406,21 @@ void hwsh_command_chdir(char *path)
 
 char *hwsh_util_get_username(void)
 {
-#if defined _WIN32 || defined _WIN64
-    char *username = (char *)malloc(sizeof(char) * (UNLEN + 1));
-    DWORD username_len = UNLEN + 1;
-    GetUserName(username, &username_len);
-    return username;
-#elif defined __linux__ || __APPLE__
     struct passwd *_username = getpwuid(getuid());
     size_t username_len = strlen(_username->pw_name);
     char *username = (char *)malloc(sizeof(char) * (username_len + 1));
     strcpy(username, _username->pw_name);
     return username;
-#endif
 }
 
 char *hwsh_util_get_hostname(void)
 {
-#if defined _WIN32 || defined _WIN64
-    char *hostname = (char *)malloc(sizeof(char) * (UNLEN + 1));
-    DWORD hostname_len = UNLEN + 1;
-    GetComputerName(hostname, &hostname_len);
-    return hostname;
-#elif defined __linux__ || __APPLE__
     char _hostname[HWSH_PATH_MAX_LENGTH];
     gethostname(_hostname, sizeof(_hostname));
     size_t hostname_length = strlen(_hostname) + 1;
     char *hostname = (char *)malloc(sizeof(char) * hostname_length);
     strcpy(hostname, _hostname);
     return hostname;
-#endif
 }
 
 void hwsh_util_str_trim(char *str)
@@ -523,44 +490,51 @@ int logger(int logType, const char *format, ...)
     }
     va_list args;
     va_start(args, format);
+    va_end(args);
 
     const size_t formatln_size = strlen(format) + 20;
     char *formatln = malloc(formatln_size * sizeof(char));
-    // clang-format off
-            switch (logType) {
-            case STDIN_FILENO:
-                logger(LOG_ERR, "function logger: cannot print to STDIN");
-                return EXIT_FAILURE;
-                break;
-            case LOG_REG:
-                sprintf(formatln, ANSI_COLOR_RESET "%s\n", format);
-                if (V_REG) vfprintf(stdout, formatln, args);
-                break;
-            case LOG_INFO:
-                sprintf(formatln, ANSI_COLOR_BLUE_BOLD "info: " ANSI_COLOR_RESET "%s\n", format);
-                if (V_INFO) vfprintf(stderr, formatln, args);
-                break;
-            case LOG_WARN:
-                sprintf(formatln, ANSI_COLOR_YELLOW_BOLD "warn: " ANSI_COLOR_RESET "%s\n", format);
-                if (V_WARN) vfprintf(stderr, formatln, args);
-                break;
-            case LOG_ERR:
-                sprintf(formatln, ANSI_COLOR_RED_BOLD "error: " ANSI_COLOR_RESET "%s\n", format);
-                if (V_ERR) vfprintf(stderr, formatln, args);
-                break;
-            case LOG_HWSH:
-                sprintf(formatln, ANSI_COLOR_MAGENTA_BOLD "hwsh: " ANSI_COLOR_RESET "%s\n", format);
-                vfprintf(stdout, formatln, args);
-                break;
-            case LOG_LEX:
-                sprintf(formatln, ANSI_COLOR_MAGENTA_BOLD "lexer: " ANSI_COLOR_RESET "%s\n", format);
-                if (V_LEX) vfprintf(stderr, formatln, args);
-                break;
-            default:
-                logger(LOG_ERR, "catastrophic failure");
-                return EXIT_FAILURE;
-            }
-    // clang-format on
+    switch (logType) {
+    case STDIN_FILENO:
+        logger(LOG_ERR, "function logger: cannot print to STDIN");
+        free(formatln);
+        return EXIT_FAILURE;
+        break;
+    case LOG_REG:
+        sprintf(formatln, ANSI_COLOR_RESET "%s\n", format);
+        if (V_REG)
+            vfprintf(stdout, formatln, args);
+        break;
+    case LOG_INFO:
+        sprintf(formatln, ANSI_COLOR_BLUE_BOLD "info: " ANSI_COLOR_RESET "%s\n", format);
+        if (V_INFO)
+            vfprintf(stderr, formatln, args);
+        break;
+    case LOG_WARN:
+        sprintf(formatln, ANSI_COLOR_YELLOW_BOLD "warn: " ANSI_COLOR_RESET "%s\n", format);
+        if (V_WARN)
+            vfprintf(stderr, formatln, args);
+        break;
+    case LOG_ERR:
+        sprintf(formatln, ANSI_COLOR_RED_BOLD "error: " ANSI_COLOR_RESET "%s\n", format);
+        if (V_ERR)
+            vfprintf(stderr, formatln, args);
+        break;
+    case LOG_HWSH:
+        sprintf(formatln, ANSI_COLOR_MAGENTA_BOLD "hwsh: " ANSI_COLOR_RESET "%s\n", format);
+        vfprintf(stdout, formatln, args);
+        break;
+    case LOG_LEX:
+        sprintf(formatln, ANSI_COLOR_MAGENTA_BOLD "lexer: " ANSI_COLOR_RESET "%s\n", format);
+        if (V_LEX)
+            vfprintf(stderr, formatln, args);
+        break;
+    default:
+        logger(LOG_ERR, "catastrophic failure");
+        free(formatln);
+        return EXIT_FAILURE;
+    }
+
     free(formatln);
     return EXIT_SUCCESS;
 }
