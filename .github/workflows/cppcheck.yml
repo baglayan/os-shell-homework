@@ -19,5 +19,5 @@ jobs:
         - name: Static Analysis with cppcheck
           run: |
             sudo apt-get install cppcheck
-            cppcheck --enable=all --suppress=missingIncludeSystem .
+            cppcheck --enable=all --suppress=missingIncludeSystem --error-exitcode=1 .
     

@@ -81,7 +81,7 @@ size_t history_count = 0;
 int main_interactive(char line[], char *command);
 int main_batch(char line[], char *command, FILE *batch_file);
 int hwsh_exec(char *command);
-int hwsh_builtin_command(char *command, char *first_arg);
+int hwsh_builtin_command(const char *command, char *first_arg);
 void hwsh_command_chdir(char *path);
 void hwsh_command_history(char **history, size_t history_count, size_t history_start);
 char *hwsh_util_get_username(void);
@@ -233,7 +233,7 @@ int hwsh_exec(char *command)
             new_parallel_cmd->args = NULL;
 
             char *arg_save = NULL;
-            char *arg = strtok_r(parallel_cmd, " ", &arg_save);
+            const char *arg = strtok_r(parallel_cmd, " ", &arg_save);
 
             while (arg) {
                 new_parallel_cmd->args = realloc(new_parallel_cmd->args, (new_parallel_cmd->argc + 1) * sizeof(char *));
@@ -251,7 +251,13 @@ int hwsh_exec(char *command)
             logger(LOG_LEX, "==SEMICOLON==");
         }
 
-        clusters = realloc(clusters, (num_clusters + 1) * sizeof(pipe_cluster_t *));
+        pipe_cluster_t **new_clusters = realloc(clusters, (num_clusters + 1) * sizeof(pipe_cluster_t *));
+        if (new_clusters == NULL) {
+            free(clusters);
+            perror("realloc");
+        } else {
+            clusters = new_clusters;
+        }
         clusters[num_clusters++] = new_cluster;
 
         cluster = strtok_r(NULL, "|", &pipe_save);
@@ -379,7 +385,7 @@ void hwsh_command_history(char **_history, size_t _history_count, size_t _histor
     }
 }
 
-int hwsh_builtin_command(char *command, char *firstArg)
+int hwsh_builtin_command(const char *command, char *firstArg)
 {
     if (strcmp(command, "quit") == 0) {
         exit(0);
@@ -406,7 +412,7 @@ void hwsh_command_chdir(char *path)
 
 char *hwsh_util_get_username(void)
 {
-    struct passwd *_username = getpwuid(getuid());
+    const struct passwd *_username = getpwuid(getuid());
     size_t username_len = strlen(_username->pw_name);
     char *username = (char *)malloc(sizeof(char) * (username_len + 1));
     strcpy(username, _username->pw_name);

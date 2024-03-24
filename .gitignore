@@ -4,4 +4,6 @@ hwsh
 hwsh.o
 hwsh_rewrite.c
 hwsh.dSYM
+.DS_Store
+
 /.vscode
