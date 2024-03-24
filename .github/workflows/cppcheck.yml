@@ -1,4 +1,4 @@
-name: C Compile
+name: cppcheck
 
 on:
   push:

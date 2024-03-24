@@ -1,7 +1,7 @@
 # hwsh
 
 [![Compile](https://github.com/baglayan/os-shell-homework/actions/workflows/compile.yml/badge.svg)](https://github.com/baglayan/os-shell-homework/actions/workflows/compile.yml)
-[![Lint with cppcheck](https://github.com/baglayan/os-shell-homework/actions/workflows/cppecheck.yml/badge.svg)](https://github.com/baglayan/os-shell-homework/actions/workflows/cppcheck.yml)
+[![Lint with cppcheck](https://github.com/baglayan/os-shell-homework/actions/workflows/cppcheck.yml/badge.svg)](https://github.com/baglayan/os-shell-homework/actions/workflows/cppcheck.yml)
 
 Created for BLG312E Computer Operating Systems Spring 2024 course, as the first homework
 
