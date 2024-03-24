@@ -1,0 +1,23 @@
+name: C Compile
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        
+        steps:
+        - uses: actions/checkout@v2
+        
+        - name: Install dependencies
+          run: sudo apt-get update && sudo apt-get install build-essential
+        
+        - name: Static Analysis with cppcheck
+          run: |
+            sudo apt-get install cppcheck
+            cppcheck --enable=all --suppress=missingIncludeSystem .
+    
