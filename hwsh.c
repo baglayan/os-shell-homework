@@ -75,15 +75,15 @@ typedef struct {
 // clang-format on
 
 char *history[HWSH_NUM_HISTORY_MAX];
-int history_start = 0;
-int history_count = 0;
+size_t history_start = 0;
+size_t history_count = 0;
 
 int main_interactive(char line[], char *command);
 int main_batch(char line[], char *command, FILE *batch_file);
 int hwsh_exec(char *command);
 int hwsh_builtin_command(char *command, char *first_arg);
 void hwsh_command_chdir(char *path);
-void hwsh_command_history(char **history, int history_count, int history_start);
+void hwsh_command_history(char **history, size_t history_count, size_t history_start);
 char *hwsh_util_get_username(void);
 char *hwsh_util_get_hostname(void);
 void hwsh_util_str_trim(char *str);
@@ -365,7 +365,7 @@ int hwsh_exec(char *command)
     return EXIT_SUCCESS;
 }
 
-void hwsh_command_history(char **_history, int _history_count, int _history_start)
+void hwsh_command_history(char **_history, size_t _history_count, size_t _history_start)
 {
     if (_history_count == 0) {
         logger(LOG_HWSH, "command history is empty");
@@ -373,8 +373,8 @@ void hwsh_command_history(char **_history, int _history_count, int _history_star
     }
 
     logger(LOG_HWSH, "command history:");
-    for (int i = _history_count - 1; i >= 0; i--) {
-        int index = (_history_start + i) % HWSH_NUM_HISTORY_MAX;
+    for (size_t i = _history_count - 1; i >= 0; i--) {
+        size_t index = (_history_start + i) % HWSH_NUM_HISTORY_MAX;
         logger(LOG_REG, "%d: %s", i, _history[index]);
     }
 }
