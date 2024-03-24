@@ -1,0 +1,6 @@
+﻿---
+BasedOnStyle: WebKit
+DerivePointerAlignment: false
+PointerAlignment: Right
+
+...

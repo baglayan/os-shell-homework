@@ -1,5 +1,6 @@
 // clang-format off
 #include <ctype.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -48,10 +49,10 @@
 #define ever (;;)
 
 #define OUTPUT 0
-#define INPUT 1
+#define INPUT  1
 
 #define V_REG  1
-#define V_INFO 1
+#define V_INFO 0
 #define V_WARN 1
 #define V_ERR  1
 #define V_LEX  0
@@ -81,12 +82,13 @@
 
 typedef struct {
     char **args;
-    int argc;
+    size_t argc;
 } parallel_cmd_t;
 
 typedef struct {
     parallel_cmd_t **parallel_cmds;
-    int num_parallel_cmds;
+    size_t num_parallel_cmds;
+    char *temp_file_path;
 } pipe_cluster_t;
 
 // clang-format on
@@ -95,9 +97,8 @@ char *history[HWSH_NUM_HISTORY_MAX];
 int history_start = 0;
 int history_count = 0;
 
-int main_interactive(int argc, char *argv[], char line[], char *command);
-int main_batch(int argc, char *argv[], char line[], char *command,
-               FILE *batch_file);
+int main_interactive(char line[], char *command);
+int main_batch(char line[], char *command, FILE *batch_file);
 int hwsh_exec(char *command);
 int hwsh_builtin_command(char *command, char *first_arg);
 void hwsh_command_chdir(char *path);
@@ -110,76 +111,85 @@ void hwsh_cli_show_usage(void);
 void hwsh_cli_show_options(void);
 int logger(int logType, const char *format, ...);
 
-int main(int argc, char *argv[]) {
-  if (argc == 2 &&
-      (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "--h") == 0)) {
-    hwsh_cli_show_usage();
-    return EXIT_SUCCESS;
-  } else if (argc == 2 &&
-             (strcmp(argv[1], "--version") == 0 ||
-              strcmp(argv[1], "--ver") == 0 || strcmp(argv[1], "--v") == 0 ||
-              strcmp(argv[1], "-v") == 0)) {
-    logger(LOG_REG,
-           "HW Shell Development Build\nCopyright (C) Meric Baglayan, 2024");
-    return EXIT_SUCCESS;
-  } else if (argc == 2 && strncmp(argv[1], "--", (size_t)2) == 0) {
-    logger(LOG_HWSH, "unknown option: %s", argv[1]);
-    hwsh_cli_show_usage();
-    hwsh_cli_show_options();
-    return EXIT_FAILURE;
-  }
-
-  char line[HWSH_CMDLINE_MAX_LENGTH];
-  char *command = NULL;
-  FILE *batch_file = NULL;
-
-  if (argc == 1) {
-    main_interactive(argc, argv, line, command);
-    return EXIT_SUCCESS;
-  } else {
-    batch_file = fopen(argv[1], "r");
-    if (batch_file == NULL) {
-      logger(LOG_HWSH, "unable to open file %s", argv[1]);
-      return EXIT_FAILURE;
+int main(int argc, char *argv[])
+{
+    if (argc == 2 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "--h") == 0)) {
+        hwsh_cli_show_usage();
+        return EXIT_SUCCESS;
+    } else if (argc == 2 && (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "--ver") == 0 || strcmp(argv[1], "--v") == 0 || strcmp(argv[1], "-v") == 0)) {
+        logger(LOG_REG, "HW Shell Submission Build\n24 March 2024\nCopyright (C) Meric Baglayan, 2024");
+        return EXIT_SUCCESS;
+    } else if (argc == 2 && strncmp(argv[1], "--", (size_t)2) == 0) {
+        logger(LOG_HWSH, "unknown option: %s", argv[1]);
+        hwsh_cli_show_usage();
+        hwsh_cli_show_options();
+        return EXIT_FAILURE;
     }
 
-    main_batch(argc, argv, line, command, batch_file);
+    char line[HWSH_CMDLINE_MAX_LENGTH];
+    char *command = NULL;
+    FILE *batch_file = NULL;
 
-    fclose(batch_file);
+    if (argc == 1) {
+        main_interactive(line, command);
+        return EXIT_SUCCESS;
+    } else {
+        batch_file = fopen(argv[1], "r");
+        if (batch_file == NULL) {
+            logger(LOG_HWSH, "unable to open file %s", argv[1]);
+            return EXIT_FAILURE;
+        }
+
+        main_batch(line, command, batch_file);
+
+        fclose(batch_file);
+        return EXIT_SUCCESS;
+    }
+
     return EXIT_SUCCESS;
-  }
-
-  return EXIT_SUCCESS;
 }
 
-int main_interactive(int argc, char *argv[], char line[], char *command) {
-  logger(LOG_INFO, "Interactive mode");
+int main_interactive(char line[], char *command)
+{
+    logger(LOG_INFO, "Interactive mode");
 
-  char cwd[HWSH_PATH_MAX_LENGTH];
-  getcwd(cwd, sizeof(cwd));
+    char cwd[HWSH_PATH_MAX_LENGTH];
 
-  char *username = hwsh_util_get_username();
-  char *hostname = hwsh_util_get_hostname();
+    if (getcwd(cwd, sizeof(cwd)) == NULL) {
+        perror("getcwd");
+        exit(EXIT_FAILURE);
+    }
+
+    char *username = hwsh_util_get_username();
+    char *hostname = hwsh_util_get_hostname();
 
     for
-      ever {
-        getcwd(cwd, sizeof(cwd));
-        fprintf(stdout, "[%s@%s] %s $ ", username, hostname, cwd);
-        fgets(line, HWSH_CMDLINE_MAX_LENGTH, stdin);
+        ever
+        {
+            if (getcwd(cwd, sizeof(cwd)) == NULL) {
+                perror("getcwd");
+                exit(EXIT_FAILURE);
+            }
+            fprintf(stdout, "[%s@%s] %s $ ", username, hostname, cwd);
 
-        command = strtok(line, "\n");
-        if (command != NULL) {
-            if (history_count < HWSH_NUM_HISTORY_MAX) {
-                history[history_count++] = strdup(command);
-            } else {
-                free(history[history_start]);
-                history[history_start] = strdup(command);
-                history_start = (history_start + 1) % HWSH_NUM_HISTORY_MAX;
+            if (fgets(line, HWSH_CMDLINE_MAX_LENGTH, stdin) == NULL) {
+                perror("fgets");
+                exit(EXIT_FAILURE);
             }
 
-            hwsh_exec(command);
+            command = strtok(line, "\n");
+            if (command != NULL) {
+                if (history_count < HWSH_NUM_HISTORY_MAX) {
+                    history[history_count++] = strdup(command);
+                } else {
+                    free(history[history_start]);
+                    history[history_start] = strdup(command);
+                    history_start = (history_start + 1) % HWSH_NUM_HISTORY_MAX;
+                }
+
+                hwsh_exec(command);
+            }
         }
-      }
 
     free(username);
     free(hostname);
@@ -187,38 +197,39 @@ int main_interactive(int argc, char *argv[], char line[], char *command) {
     return EXIT_SUCCESS;
 }
 
-int main_batch(int argc, char *argv[], char line[], char *command,
-               FILE *batch_file) {
+int main_batch(char line[], char *command, FILE *batch_file)
+{
     logger(LOG_INFO, "Batch mode");
 
-    fgets(line, HWSH_CMDLINE_MAX_LENGTH, batch_file);
+    if (fgets(line, HWSH_CMDLINE_MAX_LENGTH, batch_file) == NULL) {
+        perror("fgets");
+    }
     command = strtok(line, "\n");
     if (strncmp(command, "#!", (size_t)2) == 0) {
-      if (strstr(command, "hwsh") != NULL) {
-        logger(LOG_INFO, "Batch file designed for hwsh");
-      } else {
-        logger(LOG_WARN, "Batch file not designed for hwsh");
-      }
+        if (strstr(command, "hwsh") != NULL) {
+            logger(LOG_INFO, "Batch file designed for hwsh");
+        } else {
+            logger(LOG_WARN, "Batch file not designed for hwsh");
+        }
     } else {
-      hwsh_exec(command);
+        hwsh_exec(command);
     }
 
     while (fgets(line, HWSH_CMDLINE_MAX_LENGTH, batch_file) != NULL) {
-      command = strtok(line, "\n");
-      hwsh_exec(command);
+        command = strtok(line, "\n");
+        hwsh_exec(command);
     }
 
     return EXIT_SUCCESS;
 }
 
-int hwsh_exec(char *command) {
-    logger(LOG_INFO, "executing %s", command);
-
+int hwsh_exec(char *command)
+{
     char *pipe_save = NULL;
     char *cluster = strtok_r(command, "|", &pipe_save);
 
     pipe_cluster_t **clusters = NULL;
-    int num_clusters = 0;
+    size_t num_clusters = 0;
 
     while (cluster) {
         hwsh_util_str_trim(cluster);
@@ -266,50 +277,66 @@ int hwsh_exec(char *command) {
         logger(LOG_LEX, "==PIPE==");
     }
 
-    int pipefd[num_clusters - 1][2];
-    int prev_pipefd[2] = {-1, -1};
+    // could probably break out parsing and execution
+    //      into their own separate functions
 
-    for (int i = 0; i < num_clusters; i++) {
-        pipe_cluster_t *cluster = clusters[i];
+    // execution start
 
-        if (i != num_clusters - 1) { // if not the last cluster, create a pipe for each command
-            for (int j = 0; j < cluster->num_parallel_cmds; j++) {
-                if (pipe(pipefd[i]) == -1) {
-                    perror("pipe");
-                    exit(EXIT_FAILURE);
-                }
+    // temporary file paths for inter-cluster communication
+    char **temp_file_paths = malloc(num_clusters * sizeof(char *));
+    for (size_t i = 0; i < num_clusters; i++) {
+        temp_file_paths[i] = NULL;
+    }
+
+    for (size_t i = 0; i < num_clusters; i++) {
+        pipe_cluster_t *current_cluster = clusters[i];
+
+        size_t num_pids = 0;
+        pid_t *child_pids = malloc(current_cluster->num_parallel_cmds * sizeof(pid_t));
+
+        // prepare a single temporary file for the current cluster's output
+        if (i < num_clusters - 1) {
+            char temp_file_template[] = "/tmp/hwsh.XXXXXX";
+            int temp_fd = mkstemp(temp_file_template);
+            if (temp_fd == -1) {
+                perror("mkstemp");
+                exit(EXIT_FAILURE);
             }
+            temp_file_paths[i] = strdup(temp_file_template);
+            close(temp_fd);
         }
 
-        int num_pids = 0;
-        pid_t child_pids[cluster->num_parallel_cmds];
-
-        for (int j = 0; j < cluster->num_parallel_cmds; j++) {
-            parallel_cmd_t *parallel_cmd = cluster->parallel_cmds[j];
+        for (size_t j = 0; j < current_cluster->num_parallel_cmds; j++) {
+            parallel_cmd_t *parallel_cmd = current_cluster->parallel_cmds[j];
 
             int builtin_result = hwsh_builtin_command(parallel_cmd->args[0], parallel_cmd->args[1]);
-
             if (builtin_result != 0) {
                 pid_t pid_parallel = fork();
                 child_pids[num_pids++] = pid_parallel;
-
-                if (pid_parallel == 0) {
-                    if (prev_pipefd[0] != -1) { // if there is a previous pipe, read from it
-                        if (dup2(prev_pipefd[0], STDIN_FILENO) == -1) {
-                            perror("dup2");
+                if (pid_parallel == 0) { // child process
+                    // redirect output to the temporary file of the current cluster
+                    if (temp_file_paths[i] != NULL) {
+                        int out_fd = open(temp_file_paths[i], O_WRONLY | O_CREAT | O_APPEND, 0644);
+                        if (out_fd == -1) {
+                            perror("open");
                             exit(EXIT_FAILURE);
                         }
+                        dup2(out_fd, STDOUT_FILENO);
+                        close(out_fd);
                     }
 
-                    if (i != num_clusters - 1) { // if not the last cluster, write to the pipe
-                        if (dup2(pipefd[i][1], STDOUT_FILENO) == -1) {
-                            perror("dup2");
+                    // use the previous cluster's combined output as stdin
+                    if (i > 0 && temp_file_paths[i - 1] != NULL) {
+                        int in_fd = open(temp_file_paths[i - 1], O_RDONLY);
+                        if (in_fd == -1) {
+                            perror("open");
                             exit(EXIT_FAILURE);
                         }
+                        dup2(in_fd, STDIN_FILENO);
+                        close(in_fd);
                     }
-
                     execvp(parallel_cmd->args[0], parallel_cmd->args);
-                    perror("execvp");
+                    logger(LOG_HWSH, "command not found: %s", parallel_cmd->args[0]);
                     exit(EXIT_FAILURE);
                 } else if (pid_parallel < 0) {
                     perror("fork");
@@ -317,32 +344,29 @@ int hwsh_exec(char *command) {
                 }
             }
         }
-
-        if (prev_pipefd[0] != -1) { // close the previous pipe if it exists
-            close(prev_pipefd[0]);
-        }
-
-        if (i != num_clusters - 1) { // if not the last cluster, close the write end of the pipe
-            for (int j = 0; j < cluster->num_parallel_cmds; j++) {
-                close(pipefd[i][1]);
-            }
-        }
-
-        prev_pipefd[0] = pipefd[i][0]; // save the read end of the pipe for the next cluster
-
-        for (int k = 0; k < num_pids; k++) {
+        for (size_t k = 0; k < num_pids; k++) {
             int status;
             waitpid(child_pids[k], &status, 0);
         }
+
+        free(child_pids);
     }
 
-    for (int i = 0; i < num_clusters; i++) {
-        pipe_cluster_t *cluster = clusters[i];
+    // execution end
 
-        for (int j = 0; j < cluster->num_parallel_cmds; j++) {
-            parallel_cmd_t *parallel_cmd = cluster->parallel_cmds[j];
+    // cleanup
+    for (size_t i = 0; i < num_clusters; i++) {
+        pipe_cluster_t *full_cluster = clusters[i];
 
-            for (int k = 0; k < parallel_cmd->argc; k++) {
+        if (temp_file_paths[i] != NULL) {
+            unlink(temp_file_paths[i]);
+            free(temp_file_paths[i]);
+        }
+
+        for (size_t j = 0; j < full_cluster->num_parallel_cmds; j++) {
+            parallel_cmd_t *parallel_cmd = full_cluster->parallel_cmds[j];
+
+            for (size_t k = 0; k < parallel_cmd->argc; k++) {
                 free(parallel_cmd->args[k]);
             }
 
@@ -350,29 +374,32 @@ int hwsh_exec(char *command) {
             free(parallel_cmd);
         }
 
-        free(cluster->parallel_cmds);
-        free(cluster);
+        free(full_cluster->parallel_cmds);
+        free(full_cluster);
     }
 
     free(clusters);
+    free(temp_file_paths);
 
     return EXIT_SUCCESS;
 }
 
-void hwsh_command_history(char **history, int history_count, int history_start) {
-    if (history_count == 0) {
+void hwsh_command_history(char **_history, int _history_count, int _history_start)
+{
+    if (_history_count == 0) {
         logger(LOG_HWSH, "command history is empty");
         return;
     }
 
     logger(LOG_HWSH, "command history:");
-    for (int i = history_count - 1; i >= 0; i--) {
-        int index = (history_start + i) % HWSH_NUM_HISTORY_MAX;
-        logger(LOG_REG, "%d: %s", i, history[index]);
+    for (int i = _history_count - 1; i >= 0; i--) {
+        int index = (_history_start + i) % HWSH_NUM_HISTORY_MAX;
+        logger(LOG_REG, "%d: %s", i, _history[index]);
     }
 }
 
-int hwsh_builtin_command(char *command, char *firstArg) {
+int hwsh_builtin_command(char *command, char *firstArg)
+{
     if (strcmp(command, "quit") == 0) {
         exit(0);
     } else if ((strcmp(command, "cd") == 0) || (strcmp(command, "chdir") == 0)) {
@@ -389,13 +416,15 @@ int hwsh_builtin_command(char *command, char *firstArg) {
     return EXIT_FAILURE;
 }
 
-void hwsh_command_chdir(char *path) {
+void hwsh_command_chdir(char *path)
+{
     if (chdir(path) != 0) {
-      logger(LOG_HWSH, "unable to change directory to %s", path);
+        logger(LOG_HWSH, "unable to change directory to %s", path);
     }
 }
 
-char *hwsh_util_get_username(void) {
+char *hwsh_util_get_username(void)
+{
 #if defined _WIN32 || defined _WIN64
     char *username = (char *)malloc(sizeof(char) * (UNLEN + 1));
     DWORD username_len = UNLEN + 1;
@@ -410,7 +439,8 @@ char *hwsh_util_get_username(void) {
 #endif
 }
 
-char *hwsh_util_get_hostname(void) {
+char *hwsh_util_get_hostname(void)
+{
 #if defined _WIN32 || defined _WIN64
     char *hostname = (char *)malloc(sizeof(char) * (UNLEN + 1));
     DWORD hostname_len = UNLEN + 1;
@@ -426,16 +456,17 @@ char *hwsh_util_get_hostname(void) {
 #endif
 }
 
-void hwsh_util_str_trim(char *str) {
+void hwsh_util_str_trim(char *str)
+{
     if (!str) {
-      logger(LOG_ERR, "str_trim: str is NULL");
-      exit(EXIT_FAILURE);
+        logger(LOG_ERR, "str_trim: str is NULL");
+        exit(EXIT_FAILURE);
     }
 
     const char *firstNonSpace = str;
 
     while (isspace((unsigned char)*firstNonSpace)) {
-      ++firstNonSpace;
+        ++firstNonSpace;
     }
 
     size_t len = strlen(firstNonSpace) + 1;
@@ -444,85 +475,92 @@ void hwsh_util_str_trim(char *str) {
     char *endOfString = str + len - 1;
 
     while (str < endOfString && isspace((unsigned char)endOfString[-1])) {
-      --endOfString;
+        --endOfString;
     }
 
     *endOfString = '\0';
 }
 
-void hwsh_util_str_only_one_space(char *str) {
+void hwsh_util_str_only_one_space(char *str)
+{
     if (!str || !*str)
-      return;
+        return;
 
     char *writePtr = str;
     char *readPtr = str;
 
     int previousWasSpace = 0;
     while (*readPtr) {
-      if (isspace((unsigned char)*readPtr)) {
-        if (!previousWasSpace) {
-          *writePtr++ = ' ';
-          previousWasSpace = 1;
+        if (isspace((unsigned char)*readPtr)) {
+            if (!previousWasSpace) {
+                *writePtr++ = ' ';
+                previousWasSpace = 1;
+            }
+        } else {
+            *writePtr++ = *readPtr;
+            previousWasSpace = 0;
         }
-      } else {
-        *writePtr++ = *readPtr;
-        previousWasSpace = 0;
-      }
-      readPtr++;
+        readPtr++;
     }
     *writePtr = '\0';
 }
 
-void hwsh_cli_show_usage(void) {
-    logger(LOG_REG,
-           "Usage:  hwsh [option] ...\n        hwsh [option] script-file ...");
+void hwsh_cli_show_usage(void)
+{
+    logger(LOG_REG, "Usage:  hwsh [option] ...\n        hwsh [option] script-file ...");
 }
 
-void hwsh_cli_show_options(void) {
+void hwsh_cli_show_options(void)
+{
     logger(LOG_REG, "Shell options:\n        --help\n        --version");
 }
 
-int logger(int logType, const char *format, ...) {
+int logger(int logType, const char *format, ...)
+{
     if (logType < 0 || logType > 6) {
-      logger(LOG_ERR, "function logger: wrong logType specified");
-      return EXIT_FAILURE;
+        logger(LOG_ERR, "function logger: wrong logType specified");
+        return EXIT_FAILURE;
     }
-        va_list args;
-        va_start(args, format);
+    va_list args;
+    va_start(args, format);
 
-        char formatln[strlen(format) + 20];
-        switch (logType) {
-        case STDIN_FILENO:
-        logger(LOG_ERR, "function logger: cannot print to STDIN");
-        return EXIT_FAILURE;
-        break;
-        case LOG_REG:
-        sprintf(formatln, ANSI_COLOR_RESET "%s\n", format);
-        if (V_REG) vfprintf(stdout, formatln, args);
-        break;
-        case LOG_INFO:
-        sprintf(formatln, ANSI_COLOR_BLUE_BOLD "info: " ANSI_COLOR_RESET "%s\n", format);
-        if (V_INFO) vfprintf(stderr, formatln, args);
-        break;
-        case LOG_WARN:
-        sprintf(formatln, ANSI_COLOR_YELLOW_BOLD "warn: " ANSI_COLOR_RESET "%s\n", format);
-        if (V_WARN) vfprintf(stderr, formatln, args);
-        break;
-        case LOG_ERR:
-        sprintf(formatln, ANSI_COLOR_RED_BOLD "error: " ANSI_COLOR_RESET "%s\n", format);
-        if (V_ERR) vfprintf(stderr, formatln, args);
-        break;
-        case LOG_HWSH:
-        sprintf(formatln, ANSI_COLOR_MAGENTA_BOLD "hwsh: " ANSI_COLOR_RESET "%s\n", format);
-        vfprintf(stdout, formatln, args);
-        break;
-        case LOG_LEX:
-        sprintf(formatln, ANSI_COLOR_MAGENTA_BOLD "lexer: " ANSI_COLOR_RESET "%s\n", format);
-        if (V_LEX) vfprintf(stderr, formatln, args);
-        break;
-        default:
-        logger(LOG_ERR, "catastrophic failure");
-        return EXIT_FAILURE;
-        }
+    const size_t formatln_size = strlen(format) + 20;
+    char *formatln = malloc(formatln_size * sizeof(char));
+    // clang-format off
+            switch (logType) {
+            case STDIN_FILENO:
+                logger(LOG_ERR, "function logger: cannot print to STDIN");
+                return EXIT_FAILURE;
+                break;
+            case LOG_REG:
+                sprintf(formatln, ANSI_COLOR_RESET "%s\n", format);
+                if (V_REG) vfprintf(stdout, formatln, args);
+                break;
+            case LOG_INFO:
+                sprintf(formatln, ANSI_COLOR_BLUE_BOLD "info: " ANSI_COLOR_RESET "%s\n", format);
+                if (V_INFO) vfprintf(stderr, formatln, args);
+                break;
+            case LOG_WARN:
+                sprintf(formatln, ANSI_COLOR_YELLOW_BOLD "warn: " ANSI_COLOR_RESET "%s\n", format);
+                if (V_WARN) vfprintf(stderr, formatln, args);
+                break;
+            case LOG_ERR:
+                sprintf(formatln, ANSI_COLOR_RED_BOLD "error: " ANSI_COLOR_RESET "%s\n", format);
+                if (V_ERR) vfprintf(stderr, formatln, args);
+                break;
+            case LOG_HWSH:
+                sprintf(formatln, ANSI_COLOR_MAGENTA_BOLD "hwsh: " ANSI_COLOR_RESET "%s\n", format);
+                vfprintf(stdout, formatln, args);
+                break;
+            case LOG_LEX:
+                sprintf(formatln, ANSI_COLOR_MAGENTA_BOLD "lexer: " ANSI_COLOR_RESET "%s\n", format);
+                if (V_LEX) vfprintf(stderr, formatln, args);
+                break;
+            default:
+                logger(LOG_ERR, "catastrophic failure");
+                return EXIT_FAILURE;
+            }
+    // clang-format on
+    free(formatln);
     return EXIT_SUCCESS;
 }
